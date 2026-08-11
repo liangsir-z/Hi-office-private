@@ -1097,9 +1097,13 @@ export function mergePPrFormat(rawPPr: string, format: ParaFormat | undefined): 
   const rebuilt = new Set(
     [...managedTags].filter((tag) => !pprGroupUnchanged(tag, rawOf(tag), format ?? {})),
   )
-  const freshOut = fresh.filter((c) => rebuilt.has(c.name))
-  const kept = rawChildren.filter((c) => !rebuilt.has(c.name))
   const rank = (n: string) => PPR_CHILD_ORDER.indexOf(n)
+  // the interleave below walks freshOut once with a monotonic index, so it has to arrive in
+  // schema order; formatPPrChildren emits by concern and leaves framePr and tabs until last
+  const freshOut = fresh
+    .filter((c) => rebuilt.has(c.name))
+    .sort((a, b) => rank(a.name) - rank(b.name))
+  const kept = rawChildren.filter((c) => !rebuilt.has(c.name))
   const parts: string[] = []
   let fi = 0
   let prevRank = -1
@@ -1364,22 +1368,36 @@ function tableCellXml(
         align: cell.align,
         runs: text === '' ? [] : [{ text, bold: cell.bold, color: cell.color }],
       }))
-  const content = paragraphs
-    .map((paragraph) => {
-      const align = paragraph.align ?? cell.align
-      const list = 'list' in paragraph ? paragraph.list : undefined
-      // schema order inside pPr: numPr before jc
-      const numPr = list
-        ? `<w:numPr><w:ilvl w:val="${list.ilvl}"/><w:numId w:val="${escapeXmlAttr(list.numId)}"/></w:numPr>`
-        : ''
-      const jc = align ? `<w:jc w:val="${align === 'justify' ? 'both' : align}"/>` : ''
-      const pPr = numPr || jc ? `<w:pPr>${numPr}${jc}</w:pPr>` : ''
-      return `<w:p>${pPr}${runsXml(paragraph.runs, null)}</w:p>`
-    })
-    .join('')
-  // nested tables are regenerated from the model; OOXML requires tc to end with w:p
-  const nested = (cell.nestedTables ?? []).map((nt) => generateTableModelXml(nt)).join('')
-  return `<w:tc><w:tcPr>${tcPr.join('')}</w:tcPr>${content}${nested ? `${nested}<w:p/>` : ''}</w:tc>`
+  const paraXmls = paragraphs.map((paragraph) => {
+    // cell.align is a raw w:jc, so it is Word's logical value, while paragraph.align has already
+    // been converted to a visual one and the format model converts it back on the way out. Only
+    // left and right differ between the two, so an RTL paragraph still takes the cell fallback
+    // for centre and justify and skips it for the sided values, which cannot be placed in either
+    // coordinate system with confidence.
+    const bidi = 'bidi' in paragraph && paragraph.bidi === true
+    const sided = cell.align === 'left' || cell.align === 'right'
+    const align = paragraph.align ?? (bidi && sided ? undefined : cell.align)
+    const list = 'list' in paragraph ? paragraph.list : undefined
+    const numPr = list
+      ? `<w:numPr><w:ilvl w:val="${list.ilvl}"/><w:numId w:val="${escapeXmlAttr(list.numId)}"/></w:numPr>`
+      : ''
+    // the parsed format, not just w:jc: hand-building it here dropped w:bidi and wrote the visual
+    // align back as the logical one, flipping RTL cells to LTR, and discarded every other
+    // paragraph property the model carries
+    const pPr = mergePPrFormat(`<w:pPr>${numPr}</w:pPr>`, { ...paragraph, align })
+    return `<w:p>${pPr}${runsXml(paragraph.runs, null)}</w:p>`
+  })
+  // nested tables are regenerated from the model at their paragraph anchors (reverse
+  // insertion keeps anchor indexes valid); OOXML requires tc to end with w:p
+  const nested = cell.nestedTables ?? []
+  const items = paraXmls.map((xml) => ({ tbl: false, xml }))
+  for (let i = nested.length - 1; i >= 0; i--) {
+    const at = Math.min(cell.nestedTableAnchors?.[i] ?? paraXmls.length, paraXmls.length)
+    items.splice(at, 0, { tbl: true, xml: generateTableModelXml(nested[i]) })
+  }
+  const tail = items.length === 0 || items[items.length - 1].tbl ? '<w:p/>' : ''
+  const content = items.map((item) => item.xml).join('')
+  return `<w:tc><w:tcPr>${tcPr.join('')}</w:tcPr>${content}${tail}</w:tc>`
 }
 
 /**
