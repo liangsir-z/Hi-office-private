@@ -1,11 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-import type {
-  AiChatResponse,
-  AiSettings,
-  AiStreamChunk,
-  GenSparkAccountStatus,
-} from '@genoffice/ai-provider'
+import type { AiChatResponse, AiSettings, AiStreamChunk } from '@genoffice/ai-provider'
 import type { ProjectApi } from '@genoffice/project-store'
 import type {
   AttachmentAddResult,
@@ -33,6 +28,8 @@ import type {
   WorkbookSaveResult,
   WorkbookVisualObject,
   WebSearchResult,
+  SkillMeta,
+  CreateSkillInput,
 } from '../shared/desktop-api'
 import { IPC_CHANNELS } from '../shared/ipc-channels'
 
@@ -251,6 +248,37 @@ const desktopApi: DesktopApi = {
   async setAiSettings(settings) {
     await ipcRenderer.invoke(IPC_CHANNELS.aiSetSettings, settings)
   },
+  async skillList() {
+    return (await ipcRenderer.invoke('skill:list')) as SkillMeta[]
+  },
+  async skillRead(dir) {
+    return ipcRenderer.invoke('skill:read', dir)
+  },
+  async skillDir() {
+    const r = await ipcRenderer.invoke('skill:dir')
+    return typeof r === 'string' ? r : ''
+  },
+  async skillOpenDir() {
+    await ipcRenderer.invoke('skill:open-dir')
+  },
+  async skillCreate(input) {
+    return ipcRenderer.invoke('skill:create', input)
+  },
+  async templateList() {
+    return ipcRenderer.invoke('template:list', 'sheets')
+  },
+  async templateGet(id) {
+    return ipcRenderer.invoke('template:get', 'sheets', id)
+  },
+  async templateCreate(input) {
+    return ipcRenderer.invoke('template:create', 'sheets', input)
+  },
+  async templateRename(id, name) {
+    return ipcRenderer.invoke('template:rename', 'sheets', id, name)
+  },
+  async templateDelete(id) {
+    return ipcRenderer.invoke('template:delete', 'sheets', id)
+  },
   async aiChat(request) {
     const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.aiChat, request)
     if (!isRecord(result) || typeof result.ok !== 'boolean') {
@@ -264,16 +292,6 @@ const desktopApi: DesktopApi = {
   async aiStreamCancel(requestId) {
     if (!requestId) throw new Error('Invalid AI stream request id.')
     await ipcRenderer.invoke(IPC_CHANNELS.aiStreamCancel, requestId)
-  },
-  async aiGskStatus(withEmail) {
-    const result: unknown = await ipcRenderer.invoke(IPC_CHANNELS.aiGskStatus, withEmail)
-    if (!isRecord(result) || typeof result.loggedIn !== 'boolean') {
-      throw new Error('Invalid Genspark account status response.')
-    }
-    return result as unknown as GenSparkAccountStatus
-  },
-  async aiGskLogin() {
-    await ipcRenderer.invoke(IPC_CHANNELS.aiGskLogin)
   },
   async webSearch(query, maxResults) {
     if (typeof query !== 'string' || !query.trim() || query.length > 512) {

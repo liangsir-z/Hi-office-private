@@ -673,6 +673,47 @@ export function handleRibbonCommand(ctx: RibbonCommandContext, command: string):
     ctx.setMessage(t('appCellStyleApplied'))
     return
   }
+  if (command.startsWith('cell-template:')) {
+    // user-saved cell-style template: fetch payload (raw IStyleData) and apply to the active range
+    const id = command.slice('cell-template:'.length)
+    const range = runtime.univerAPI.getActiveWorkbook()?.getActiveRange()
+    if (!range) {
+      ctx.setMessage(t('appSelectCellsFirst'))
+      return
+    }
+    void (async () => {
+      const rec = await window.desktopApi.templateGet(id)
+      const style = (rec?.payload as { style?: Record<string, unknown> } | undefined)?.style
+      if (!style) return
+      // apply known style fields via the same facade setters applyFormatPatchToRange uses.
+      // Univer's IStyleData: bl/it are BooleanNumber (0|1); ul/st are { s: 0|1 } objects;
+      // bg/cl colors may be bare hex, #hex, or rgb(...) — normalize to #RRGGBB.
+      const ns = style as {
+        bl?: number; it?: number; ul?: { s?: number }; st?: { s?: number }
+        ff?: string; fs?: number; bg?: { rgb?: string }; cl?: { rgb?: string }
+      }
+      const normalizeColor = (raw?: string): string | undefined => {
+        if (!raw) return undefined
+        if (raw.startsWith('#')) return raw
+        if (raw.startsWith('rgb')) return raw
+        return `#${raw}`
+      }
+      const patch: Record<string, unknown> = {}
+      if (ns.bl === 1) patch.bold = true
+      if (ns.it === 1) patch.italic = true
+      if (ns.ul?.s === 1) patch.underline = true
+      if (ns.st?.s === 1) patch.strikethrough = true
+      if (typeof ns.ff === 'string') patch.fontFamily = ns.ff
+      if (typeof ns.fs === 'number') patch.fontSize = ns.fs
+      const fill = normalizeColor(ns.bg?.rgb)
+      if (fill) patch.fillColor = fill
+      const font = normalizeColor(ns.cl?.rgb)
+      if (font) patch.fontColor = font
+      applyFormatPatchToRange(range, patch as Parameters<typeof applyFormatPatchToRange>[1])
+      ctx.setMessage(t('appCellStyleApplied'))
+    })()
+    return
+  }
   if (command.startsWith('insert-chart:')) {
     void handleInsertChart(ctx.visualContext(), command.slice('insert-chart:'.length))
     return

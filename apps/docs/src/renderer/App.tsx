@@ -93,6 +93,11 @@ import {
   type ContextMenuState,
 } from './components/ContextMenu'
 import { PromptModal } from './components/PromptModal'
+import { ThemeEditDialog } from './components/ThemeEditDialog'
+import { AiSettingsModal } from '@genoffice/ui'
+import { loadUserSkills, type CreateSkillInput, type SkillApi, type SkillMeta } from '@genoffice/skill-loader'
+import type { TemplateInfo } from '@genoffice/template-store'
+import type { AgentSkill } from '@genoffice/agent-core'
 import { t, useI18n } from './i18n/locale'
 import {
   getActiveSubEditor,
@@ -254,6 +259,12 @@ interface DocStats {
   lines: number
 }
 
+/** Common font families offered in the New Theme Fonts editor. */
+const THEME_FONT_OPTIONS = [
+  'Calibri Light', 'Calibri', 'Arial', 'Times New Roman', 'Georgia',
+  '等线', '宋体', '黑体', '微软雅黑', '楷体', '仿宋',
+]
+
 const DEFAULT_SETTINGS: AiSettings = {
   provider: 'anthropic',
   providers: Object.fromEntries(
@@ -276,6 +287,14 @@ export function App() {
   const [showAi, setShowAi] = useState(() => localStorage.getItem('aidocs.showAi') !== '0')
   /** Increments on every open/new document: AiPanel remounts by key to reset the conversation and history (save path changes don't bump it, so the session continues) */
   const [aiPanelKey, setAiPanelKey] = useState(0)
+  /** user-supplied skills (SKILL.md + tools.json) loaded once at startup */
+  const [userSkills, setUserSkills] = useState<AgentSkill[]>([])
+  /** skill metadata for the settings dialog's Skills section */
+  const [skillMetas, setSkillMetas] = useState<SkillMeta[]>([])
+  /** saved templates for the settings dialog's Templates section */
+  const [templates, setTemplates] = useState<TemplateInfo[]>([])
+  /** templates with payload colors resolved, for the design gallery swatches */
+  const [userTemplateColors, setUserTemplateColors] = useState<{ id: string; name: string; colors?: Record<string, string> }[]>([])
   const [ribbonTabRequest, setRibbonTabRequest] = useState<{ tab: string; nonce: number } | null>(
     null,
   )
@@ -497,6 +516,9 @@ export function App() {
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null)
   const [showFontDialog, setShowFontDialog] = useState(false)
   const [showParaDialog, setShowParaDialog] = useState(false)
+  const [showAiSettings, setShowAiSettings] = useState(false)
+  /** theme editor dialog: null = closed; 'fonts'/'colors' = which editor */
+  const [themeEditMode, setThemeEditMode] = useState<'fonts' | 'colors' | null>(null)
   const [pageInfo, setPageInfo] = useState({ current: 1, total: 1 })
   // last page's displayed number for the document-end footer '#' marker
   // (section restarts / pageNumberFmt make it differ from the physical count)
@@ -590,7 +612,45 @@ export function App() {
 
   useEffect(() => {
     void window.desktop.getRecentFiles().then(setRecent)
-    void window.desktop.getAiSettings().then(setSettings)
+    void window.desktop.templateList().then(setTemplates)
+  }, [])
+
+  // [templates] pre-resolve template payloads so the design gallery can render color swatches
+  useEffect(() => {
+    if (templates.length === 0) {
+      setUserTemplateColors([])
+      return
+    }
+    void Promise.all(
+      templates.map(async (tpl) => {
+        const rec = await window.desktop.templateGet(tpl.id)
+        const colors = (rec?.payload as { colors?: Record<string, string> } | undefined)?.colors
+        return { id: tpl.id, name: tpl.name, ...(colors ? { colors } : {}) }
+      }),
+    ).then(setUserTemplateColors)
+  }, [templates])
+
+  useEffect(() => {
+    void window.desktop.getAiSettings().then(async (s) => {
+      setSettings(s)
+      // [skills] load user-supplied skills, filtered by per-skill enable flags
+      const docsApi: SkillApi = { desktop: window.desktop as unknown as Record<string, (...a: unknown[]) => unknown> }
+      const metas = await window.desktop.skillList()
+      setSkillMetas(metas)
+      const skills = await loadUserSkills({
+        app: 'docs',
+        api: docsApi,
+        bridge: {
+          listSkills: () => Promise.resolve(metas),
+          readSkill: (dir) => window.desktop.skillRead(dir),
+        },
+        isEnabled: (dir) => s.skills?.[dir] !== false,
+      })
+      if (skills.length) {
+        setUserSkills(skills)
+        setAiPanelKey((k) => k + 1) // remount AiPanel so the loop picks up the new skills
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -637,7 +697,7 @@ export function App() {
 
   // window title follows the document, so the OS window list and Switch Window show file names
   useEffect(() => {
-    document.title = doc ? doc.fileName : 'GenOffice Docs'
+    document.title = doc ? doc.fileName : 'Hi-office Docs'
   }, [doc])
 
   useEffect(() => window.desktop.onTeardown?.(() => setTornDown(true)), [])
@@ -2333,6 +2393,29 @@ export function App() {
       setThemeColorsDirty(true)
       setStatus(t('appThemeColorsApplied', { name: colors.name ?? '' }))
     },
+    onApplyTemplate: (id: string) => {
+      void (async () => {
+        const rec = await window.desktop.templateGet(id)
+        if (!rec) return
+        const p = rec.payload as { fonts?: ThemeFonts; colors?: ThemeColors }
+        if (p.fonts) { setThemeFonts(p.fonts); setThemeFontsDirty(true) }
+        if (p.colors) { setThemeColors(p.colors); setThemeColorsDirty(true) }
+      })()
+    },
+    onSaveCurrentTheme: () => {
+      const name = window.prompt(t('appSaveThemePrompt'))
+      if (!name?.trim()) return
+      void (async () => {
+        const res = await window.desktop.templateCreate({
+          name: name.trim(),
+          kind: 'theme',
+          payload: { fonts: themeFonts ?? undefined, colors: themeColors ?? undefined },
+        })
+        if (res.ok) setTemplates(await window.desktop.templateList())
+      })()
+    },
+    onNewThemeFonts: () => setThemeEditMode('fonts'),
+    onNewThemeColors: () => setThemeEditMode('colors'),
     onInkTool: setInkTool,
     onInkPen: setInkPen,
     onInkHighlighter: setInkHighlighter,
@@ -2530,6 +2613,7 @@ export function App() {
         showGrid={showGrid}
         splitView={splitView}
         {...ribbonActions}
+        userTemplates={userTemplateColors}
       />
 
       <div className="app-main">
@@ -2549,6 +2633,8 @@ export function App() {
               open={showAi}
               onExpand={() => setShowAi(true)}
               onCollapse={() => setShowAi(false)}
+              onOpenSettings={() => setShowAiSettings(true)}
+              userSkills={userSkills}
               filePath={doc?.filePath ?? null}
             />
           </div>
@@ -2870,6 +2956,78 @@ export function App() {
       )}
       {doc && showParaDialog && (
         <ParagraphDialog editor={editor} onClose={() => setShowParaDialog(false)} />
+      )}
+      {showAiSettings && (
+        <AiSettingsModal
+          settings={settings}
+          t={t as (key: string, params?: Record<string, string | number>) => string}
+          skills={skillMetas}
+          onOpenSkillsDir={() => void window.desktop.skillOpenDir()}
+          onCreateSkill={async (input) => {
+            const res = await window.desktop.skillCreate(input as CreateSkillInput)
+            if (res.ok) setSkillMetas(await window.desktop.skillList())
+            return res.ok ? { ok: true, dir: res.dir } : { ok: false, error: res.error }
+          }}
+          onReadSkillBody={async (dir) => (await window.desktop.skillRead(dir))?.md ?? null}
+          templates={templates}
+          onExtractTemplate={async (name) => {
+            if (!themeFonts && !themeColors) return { ok: false, error: 'no theme to extract' }
+            const res = await window.desktop.templateCreate({
+              name,
+              kind: 'theme',
+              payload: { fonts: themeFonts ?? undefined, colors: themeColors ?? undefined },
+            })
+            if (res.ok) setTemplates(await window.desktop.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onApplyTemplate={async (id) => {
+            const rec = await window.desktop.templateGet(id)
+            if (!rec) return { ok: false, error: 'template not found' }
+            const p = rec.payload as { fonts?: ThemeFonts; colors?: ThemeColors }
+            if (p.fonts) { setThemeFonts(p.fonts); setThemeFontsDirty(true) }
+            if (p.colors) { setThemeColors(p.colors); setThemeColorsDirty(true) }
+            return { ok: true }
+          }}
+          onRenameTemplate={async (id, name) => {
+            const res = await window.desktop.templateRename(id, name)
+            if (res.ok) setTemplates(await window.desktop.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onDeleteTemplate={async (id) => {
+            const res = await window.desktop.templateDelete(id)
+            if (res.ok) setTemplates(await window.desktop.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onSave={(next) => {
+            setSettings(next)
+            void window.desktop.setAiSettings(next)
+          }}
+          onClose={() => setShowAiSettings(false)}
+        />
+      )}
+
+      {themeEditMode && (
+        <ThemeEditDialog
+          mode={themeEditMode}
+          initialFonts={themeFonts}
+          initialColors={themeColors}
+          fontOptions={THEME_FONT_OPTIONS}
+          onApply={(value) => {
+            // apply to the current doc immediately + save as a named template
+            if (themeEditMode === 'fonts') {
+              const f = value as ThemeFonts
+              setThemeFonts(f)
+              setThemeFontsDirty(true)
+              void window.desktop.templateCreate({ name: f.minor, kind: 'theme', payload: { fonts: f, colors: themeColors ?? undefined } }).then(async () => setTemplates(await window.desktop.templateList()))
+            } else {
+              const c = value as ThemeColors
+              setThemeColors(c)
+              setThemeColorsDirty(true)
+              void window.desktop.templateCreate({ name: c.name ?? 'custom', kind: 'theme', payload: { fonts: themeFonts ?? undefined, colors: c } }).then(async () => setTemplates(await window.desktop.templateList()))
+            }
+          }}
+          onClose={() => setThemeEditMode(null)}
+        />
       )}
 
       {doc && notePrompt && (

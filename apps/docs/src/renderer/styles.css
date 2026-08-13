@@ -285,15 +285,15 @@ button {
   box-shadow: 0 2px 6px rgba(74, 92, 255, 0.25);
 }
 
-/* Genspark brand logo (Ribbon AI button and AI panel title) */
-.genspark-badge {
+/* brand logo (Ribbon AI button and AI panel title) */
+.brand-badge {
   display: block;
   width: 22px;
   height: 22px;
   border-radius: 50%;
 }
 
-.ai-panel-title .genspark-badge {
+.ai-panel-title .brand-badge {
   width: 18px;
   height: 18px;
 }
@@ -458,7 +458,7 @@ button {
   background: var(--active-bg);
 }
 
-/* The Genspark AI entry keeps a black label even while the panel is open. */
+/* The brand AI entry keeps a black label even while the panel is open. */
 .rb-big.ai-entry.active {
   color: var(--text);
 }
@@ -474,7 +474,7 @@ button {
   background: var(--hover);
 }
 
-/* Neutral gray, not the Word-blue --active-bg: the Genspark entry is the same
+/* Neutral gray, not the Word-blue --active-bg: the brand entry is the same
    control across docs/sheets/slides, so its open state matches their ribbons. */
 .rb-big.ai-entry.active {
   background: #ebebeb;
@@ -945,7 +945,7 @@ button {
 }
 
 /* line spacing dropdown */
-/* Home-tab Genspark AI entry: black circular "+" badge with a dropdown caret,
+/* Home-tab brand AI entry: black circular "+" badge with a dropdown caret,
    brand label below (mirrors the sheets Home ribbon). */
 /* AI feature buttons next to the entry: purple glyphs, label below */
 .ai-feature-icon {
@@ -5173,7 +5173,7 @@ body.docs-crop-active
 .ai-attachments {
   display: flex;
   gap: 8px;
-  /* single row inside the prompt box, above the textarea (Genspark composer style):
+  /* single row inside the prompt box, above the textarea (compact style):
      extra images run past the box edge and scroll horizontally.
      scroll (not auto) + zero bottom padding: the always-present 4px scrollbar lane
      doubles as the bottom padding, so overflowing never grows the strip and
@@ -5281,7 +5281,7 @@ body.docs-crop-active
   background: #fafafa;
 }
 
-/* the type icon sits in its own bordered white tile, like the Genspark card */
+/* the type icon sits in its own bordered white tile, like the brand card */
 .ai-attachment-card-icon {
   display: flex;
   flex-shrink: 0;
@@ -5627,6 +5627,286 @@ body.docs-crop-active
   background: color-mix(in srgb, var(--word-blue) 10%, var(--surface));
   color: var(--word-blue);
   font-weight: 600;
+}
+
+/* AI settings dialog: a little wider than the base modal to fit two sections */
+.modal.ai-settings-modal {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+}
+.modal.ai-settings-modal label {
+  margin-top: 10px;
+}
+.modal.ai-settings-modal .provider-tabs {
+  margin-top: 4px;
+}
+
+/* AI settings: nav + panel layout (ZCode-style settings) */
+.ai-settings-modal {
+  display: flex;
+  flex-direction: column;
+}
+.settings-shell {
+  display: flex;
+  min-height: 320px;
+  margin: 4px -4px 0;
+}
+.settings-nav {
+  width: 120px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+  border-right: 1px solid var(--border-strong);
+}
+.settings-nav-item {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-nav-item:hover {
+  background: color-mix(in srgb, var(--word-blue) 8%, transparent);
+}
+.settings-nav-item.active {
+  background: color-mix(in srgb, var(--word-blue) 14%, transparent);
+  color: var(--word-blue);
+  font-weight: 600;
+}
+.settings-panel {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+/* AI settings: Skills panel */
+.ai-settings-skills {
+  /* no top border in the nav layout (each tab is its own panel) */
+}
+.ai-settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.ai-settings-skills-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ai-settings-skills-open {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.ai-settings-skills-empty {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 4px 0 0;
+}
+.ai-settings-skills-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ai-settings-skill-row {
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-strong) 50%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ai-settings-skill-row:last-child {
+  border-bottom: none;
+}
+.ai-settings-skill-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.ai-settings-skill-toggle input[type='checkbox'] {
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+.ai-settings-skill-name {
+  font-weight: 500;
+}
+.ai-settings-skill-app {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--word-blue) 12%, transparent);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.ai-settings-skill-origin {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--border-strong) 60%, transparent);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.ai-settings-skill-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding-left: 24px;
+}
+
+/* Skills panel: actions row + search + create wizard + health + detail */
+.ai-settings-skills-actions {
+  display: flex;
+  gap: 6px;
+}
+.ai-settings-skill-search {
+  width: 100%;
+  margin: 8px 0 6px;
+  padding: 6px 9px;
+  font-size: 12.5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: inherit;
+}
+.ai-settings-skill-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.ai-settings-skill-expand {
+  font-size: 11px;
+  padding: 1px 8px;
+  line-height: 1.4;
+}
+.ai-settings-skill-health {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+.ai-settings-skill-health.health-error {
+  background: #d93025;
+}
+.ai-settings-skill-health.health-weak {
+  background: #f9ab00;
+}
+.ai-settings-skill-health-msg {
+  display: block;
+  font-size: 11.5px;
+  padding-left: 24px;
+  margin-top: 1px;
+}
+.ai-settings-skill-health-msg.health-error {
+  color: #d93025;
+}
+.ai-settings-skill-health-msg.health-weak {
+  color: #b07000;
+}
+.ai-settings-skill-detail {
+  margin: 6px 0 2px 24px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--border-strong) 18%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.ai-settings-skill-field {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.ai-settings-skill-field:last-child {
+  margin-bottom: 0;
+}
+.ai-settings-skill-field-label {
+  flex-shrink: 0;
+  width: 72px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.ai-settings-skill-field code {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+}
+.ai-settings-skill-body-pre {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+}
+.ai-settings-skill-create {
+  padding: 10px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.ai-settings-skill-create label {
+  margin-top: 6px;
+}
+.ai-settings-skill-create textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: inherit;
+}
+.ai-settings-skill-create-error {
+  color: #d93025;
+  font-size: 12px;
+  margin: 4px 0;
+}
+.ai-settings-skill-create-actions {
+  margin-top: 8px;
+}
+
+/* AI settings: Templates panel */
+.ai-settings-templates {
+  /* reuses .ai-settings-skills-list / .ai-settings-skill-row from skills panel */
+}
+.ai-settings-tpl-extract {
+  padding: 10px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.ai-settings-tpl-extract label {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+.ai-settings-tpl-extract button {
+  font-size: 12.5px;
+  padding: 5px 14px;
+}
+.ai-settings-tpl-error {
+  color: #d93025;
+  font-size: 12px;
+  margin: 4px 0;
+}
+.ai-settings-tpl-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 4px 0 0;
 }
 
 .provider-dot {
@@ -6174,6 +6454,54 @@ body.docs-crop-active
   height: 10px;
   border-radius: 2px;
   border: 1px solid rgba(0, 0, 0, 0.12);
+}
+/* separator inside a layout-menu (e.g. between built-in themes and user templates) */
+.layout-menu-sep {
+  margin: 4px 0 2px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* "Save Current Theme" action at the top of the theme dropdown (WPS-style) */
+.layout-menu-save {
+  font-weight: 600;
+  color: var(--word-blue);
+}
+
+/* New Theme Colors / Fonts editor dialog */
+.modal.theme-edit-modal {
+  width: 460px;
+  max-width: calc(100vw - 32px);
+}
+.theme-edit-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 16px;
+  margin: 4px 0 10px;
+}
+.theme-edit-color-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: 12.5px;
+}
+.theme-edit-color-cell span {
+  color: var(--text-dim);
+}
+.theme-edit-color-cell input[type='color'] {
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
 }
 
 /* ---- References → Footnotes/Endnotes: reference marker + page-bottom notes area ---- */

@@ -1,0 +1,8 @@
+{
+  "name": "@genoffice/skills-builtin",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "description": "Bundled read-only agent skills (pure-prompt form) shipped with the app. Adapted from permissively-licensed upstream sources (MIT / Apache-2.0); see NOTICE.md for attributions.",
+  "files": ["skills"]
+}

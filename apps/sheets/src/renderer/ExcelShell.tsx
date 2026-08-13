@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { SHAPE_GALLERY_GROUPS, ShapePreview } from '@genoffice/ui'
+import { AiSettingsModal, SHAPE_GALLERY_GROUPS, ShapePreview } from '@genoffice/ui'
+import type { AiSettings } from '@genoffice/ai-provider'
+import type { CreateSkillInput, SkillMeta } from '@genoffice/skill-loader'
+import type { TemplateInfo } from '@genoffice/template-store'
 
 import {
   CaretIcon,
-  GensparkMark,
+  BrandMark,
   RIBBON_GLYPH_ICONS,
   RedoIcon,
   SaveIcon,
@@ -270,6 +273,9 @@ export function ExcelShell({
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<RibbonTab>('Home')
   const [isCopilotOpen, setIsCopilotOpen] = useState(true)
+  const [aiSettingsDraft, setAiSettingsDraft] = useState<AiSettings | null>(null)
+  const [skillMetas, setSkillMetas] = useState<SkillMeta[]>([])
+  const [templates, setTemplates] = useState<TemplateInfo[]>([])
   const [showFormatCells, setShowFormatCells] = useState(false)
   const [axisSizeTarget, setAxisSizeTarget] = useState<'row' | 'col' | null>(null)
   const [showLinkDialog, setShowLinkDialog] = useState(false)
@@ -383,6 +389,7 @@ export function ExcelShell({
           selectedChart={selectedChart}
           onRefreshPivot={onRefreshPivot}
           onIsSelectionInPivot={onIsSelectionInPivot}
+          templates={templates}
           onCommand={(command) => {
             if (command === 'format-cells') setShowFormatCells(true)
             else if (command === 'row-height-open') setAxisSizeTarget('row')
@@ -439,6 +446,16 @@ export function ExcelShell({
           onUndo={onUndo}
           onExpand={() => setIsCopilotOpen(true)}
           onCollapse={() => setIsCopilotOpen(false)}
+          onOpenSettings={async () => {
+            const [s, metas, tpls] = await Promise.all([
+              window.desktopApi.getAiSettings(),
+              window.desktopApi.skillList(),
+              window.desktopApi.templateList(),
+            ])
+            setAiSettingsDraft(s)
+            setSkillMetas(metas)
+            setTemplates(tpls)
+          }}
         />
         <div className="sheet-main">
           {/* Excel's formula-bar row, Name Box only for now (fx bar TBD). */}
@@ -482,6 +499,78 @@ export function ExcelShell({
           </footer>
         </div>
       </div>
+      {aiSettingsDraft && (
+        <AiSettingsModal
+          settings={aiSettingsDraft}
+          t={t as (key: string, params?: Record<string, string | number>) => string}
+          skills={skillMetas}
+          onOpenSkillsDir={() => void window.desktopApi.skillOpenDir()}
+          onCreateSkill={async (input) => {
+            const res = await window.desktopApi.skillCreate(input as CreateSkillInput)
+            if (res.ok) setSkillMetas(await window.desktopApi.skillList())
+            return res.ok ? { ok: true, dir: res.dir } : { ok: false, error: res.error }
+          }}
+          onReadSkillBody={async (dir) => (await window.desktopApi.skillRead(dir))?.md ?? null}
+          templates={templates}
+          onExtractTemplate={async (name) => {
+            const uapi = (window as unknown as Record<string, unknown>).__univerAPI as
+              | { getActiveWorkbook?: () => { getActiveRange?: () => { getCellStyleData?: () => Record<string, unknown> } } }
+              | undefined
+            const range = uapi?.getActiveWorkbook?.()?.getActiveRange?.()
+            if (!range) return { ok: false, error: 'select a cell first' }
+            const style = range.getCellStyleData?.() ?? {}
+            const res = await window.desktopApi.templateCreate({ name, kind: 'cell-style', payload: { style } })
+            if (res.ok) setTemplates(await window.desktopApi.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onApplyTemplate={async (id) => {
+            const rec = await window.desktopApi.templateGet(id)
+            if (!rec) return { ok: false, error: 'template not found' }
+            const ns = (rec.payload as { style?: Record<string, unknown> } | undefined)?.style as
+              | {
+                  bl?: number; it?: number; ul?: { s?: number }; st?: { s?: number }
+                  ff?: string; fs?: number; bg?: { rgb?: string }; cl?: { rgb?: string }
+                }
+              | undefined
+            if (!ns) return { ok: true }
+            const uapi = (window as unknown as Record<string, unknown>).__univerAPI as
+              | { getActiveWorkbook?: () => { getActiveRange?: () => Record<string, (...a: unknown[]) => unknown> } }
+              | undefined
+            const range = uapi?.getActiveWorkbook?.()?.getActiveRange?.() as
+              | Record<string, (...a: unknown[]) => unknown>
+              | undefined
+            if (!range) return { ok: false, error: 'select a cell first' }
+            const norm = (raw?: string): string | undefined =>
+              raw ? (raw.startsWith('#') || raw.startsWith('rgb') ? raw : `#${raw}`) : undefined
+            if (ns.bl === 1) range.setFontWeight?.('bold')
+            if (ns.it === 1) range.setFontStyle?.('italic')
+            if (ns.ul?.s === 1) range.setFontUnderline?.('single')
+            if (ns.st?.s === 1) range.setFontStrikethrough?.('single')
+            if (typeof ns.ff === 'string') range.setFontFamily?.(ns.ff)
+            if (typeof ns.fs === 'number') range.setFontSize?.(ns.fs)
+            const fill = norm(ns.bg?.rgb)
+            if (fill) range.setBackground?.(fill)
+            const font = norm(ns.cl?.rgb)
+            if (font) range.setFontColor?.(font)
+            return { ok: true }
+          }}
+          onRenameTemplate={async (id, n) => {
+            const res = await window.desktopApi.templateRename(id, n)
+            if (res.ok) setTemplates(await window.desktopApi.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onDeleteTemplate={async (id) => {
+            const res = await window.desktopApi.templateDelete(id)
+            if (res.ok) setTemplates(await window.desktopApi.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onSave={async (next) => {
+            await window.desktopApi.setAiSettings(next)
+            setAiSettingsDraft(next)
+          }}
+          onClose={() => setAiSettingsDraft(null)}
+        />
+      )}
       {showFormatCells && (
         <FormatCellsDialog
           selectionFormat={selectionFormat}
@@ -973,6 +1062,7 @@ function Ribbon({
   pageLayout,
   selectedChart,
   onCommand,
+  templates,
   onAiRun,
   aiOpen,
   onAiToggle,
@@ -986,6 +1076,8 @@ function Ribbon({
   readonly pageLayout: PageLayoutEcho
   readonly selectedChart: SelectedChartRibbon | null
   readonly onCommand: (command: string) => void
+  /** [templates] user-saved cell-style templates for the gallery */
+  readonly templates: { id: string; name: string }[]
   /** Open the AI panel and immediately send the given prompt */
   readonly onAiRun: (prompt: string) => void
   /** AI side panel visibility (docs/slides parity: the entry button toggles it) */
@@ -2053,10 +2145,10 @@ function Ribbon({
           onClick={onAiToggle}
         >
           <span className="tool-icon-row">
-            <GensparkMark size={26} />
+            <BrandMark size={26} />
           </span>
           <span>
-            <strong>Genspark AI</strong>
+            <strong>Hi-office AI</strong>
           </span>
         </button>
         <button
@@ -2424,6 +2516,19 @@ function Ribbon({
               onPick={(value) => onCommand(`cell-style:${value}`)}
             />
           </div>
+          {templates.length > 0 && (
+            <div className="styles-row as-button" title={t('appMyTemplates')}>
+              <ToolSymbol symbol="📋" />
+              {t('appMyTemplates')}
+              <CaretIcon />
+              <MenuSelect
+                cover
+                label={t('appMyTemplates')}
+                options={templates.map((tpl) => ({ value: tpl.id, label: tpl.name }))}
+                onPick={(value) => onCommand(`cell-template:${value}`)}
+              />
+            </div>
+          )}
         </div>
       </RibbonGroup>
       <RibbonGroup label={t('appGroupCells')}>

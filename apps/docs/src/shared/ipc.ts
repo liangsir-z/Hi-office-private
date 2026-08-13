@@ -22,7 +22,6 @@ import type {
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
-  GenSparkAccountStatus,
 } from '@genoffice/ai-provider'
 
 export type {
@@ -34,9 +33,12 @@ export type {
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
-  GenSparkAccountStatus,
 } from '@genoffice/ai-provider'
 export { AI_PROVIDERS } from '@genoffice/ai-provider'
+import type { CreateSkillInput, CreateSkillResult, SkillFiles, SkillMeta } from '@genoffice/skill-loader'
+export type { CreateSkillResult, CreateSkillInput, SkillFiles, SkillMeta } from '@genoffice/skill-loader'
+import type { TemplateInfo, TemplateRecord } from '@genoffice/template-store'
+export type { TemplateInfo, TemplateRecord } from '@genoffice/template-store'
 
 // ---- agent protocol: canonical types live in @genoffice/agent-core ----
 
@@ -175,6 +177,26 @@ export interface DesktopApi {
   pickImage(): Promise<PickImageResult | null>
   getAiSettings(): Promise<AiSettings>
   setAiSettings(settings: AiSettings): Promise<void>
+  /** [skills] list discovered user skills (SKILL.md + tools.json) */
+  skillList(): Promise<SkillMeta[]>
+  /** [skills] read one skill's raw files for the renderer to parse+build */
+  skillRead(dir: string): Promise<SkillFiles | null>
+  /** [skills] absolute path to the skills directory (for "open folder") */
+  skillDir(): Promise<string>
+  /** [skills] open the skills directory in the OS file manager */
+  skillOpenDir(): Promise<void>
+  /** [skills] create a new skill from the wizard payload */
+  skillCreate(input: CreateSkillInput): Promise<CreateSkillResult>
+  /** [templates] list the user's saved templates for this app */
+  templateList(): Promise<TemplateInfo[]>
+  /** [templates] get one full template (with payload) */
+  templateGet(id: string): Promise<TemplateRecord | null>
+  /** [templates] create a new template from an extracted payload */
+  templateCreate(input: { name: string; kind: string; payload: unknown }): Promise<{ ok: true; id: string } | { ok: false; error: string }>
+  /** [templates] rename a template */
+  templateRename(id: string, name: string): Promise<{ ok: true } | { ok: false; error: string }>
+  /** [templates] delete a template */
+  templateDelete(id: string): Promise<{ ok: true } | { ok: false; error: string }>
   /** system print dialog for the current window */
   print(): Promise<void>
   /** render the document to PDF and ask where to save; size in twips.
@@ -201,10 +223,6 @@ export interface DesktopApi {
   /** start a streaming AI call; deltas arrive via onAiStream with the same requestId */
   aiStream(request: AiStreamRequest): Promise<void>
   aiStreamCancel(requestId: string): Promise<void>
-  /** Genspark account status (gsk login state); withEmail also returns the email (needs a network request, slower) */
-  aiGskStatus(withEmail?: boolean): Promise<GenSparkAccountStatus>
-  /** Open the browser to log in to Genspark (fire-and-forget; aiGskStatus flips to logged-in when done) */
-  aiGskLogin(): Promise<void>
   webSearch(
     query: string,
     maxResults?: number,

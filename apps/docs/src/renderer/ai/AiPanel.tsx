@@ -15,7 +15,7 @@ import { createElectronTransport } from './transport'
 import { useI18n, t as tModule, aiLangDirective, type StringKey } from '../i18n/locale'
 import { Markdown } from '@genoffice/ui'
 import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
-import { GensparkMark } from '../components/icons'
+import { BrandMark, IconGear } from '../components/icons'
 import sendEnterOn from '../assets/send-enter-on.png'
 import sendEnterOff from '../assets/send-enter-off.png'
 import sendStop from '../assets/send-stop.png'
@@ -71,8 +71,6 @@ interface ChatEntry {
   turnLimit?: boolean
   /** the run failed and this user message was rolled back out of the model context */
   undelivered?: boolean
-  /** the run failed because Genspark is signed out — render an inline sign-in button */
-  loginRequired?: boolean
   /** tool executions performed during this assistant turn */
   tools?: ToolActivity[]
 }
@@ -119,7 +117,7 @@ const PASTE_MIME_EXT: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-/** File-type icons for attachment cards (Genspark attachment icon set); exts the
+/** File-type icons for attachment cards (Hi-office attachment icon set); exts the
  *  attachment allowlist doesn't accept yet are mapped ahead so they light up when added */
 const ATTACHMENT_CARD_ICON_GROUPS: [icon: string, exts: string[]][] = [
   [fileWordIcon, ['doc', 'docx']],
@@ -218,6 +216,10 @@ interface AiPanelProps {
   onExpand?: () => void
   /** collapse the panel to the sidebar rail */
   onCollapse?: () => void
+  /** open the AI provider / image-gen settings dialog */
+  onOpenSettings?: () => void
+  /** user-supplied skills injected into the agent loop (SKILL.md + tools.json) */
+  userSkills?: import('@genoffice/agent-core').AgentSkill[]
   /** Absolute path of the currently open file (used for chat-history persistence) */
   filePath?: string | null
 }
@@ -232,6 +234,8 @@ export function AiPanel({
   open = true,
   onExpand,
   onCollapse,
+  onOpenSettings,
+  userSkills,
   filePath,
 }: AiPanelProps) {
   const { t } = useI18n()
@@ -247,7 +251,7 @@ export function AiPanel({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
   const [attachNotice, setAttachNotice] = useState<string | null>(null)
-  /** data-URL previews for image attachments, keyed by path (Genspark composer thumbnails) */
+  /** data-URL previews for image attachments, keyed by path (Hi-office composer thumbnails) */
   const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string>>({})
   /** image paths with a read already issued — one readAttachmentImage per attach, even while pending */
   const previewRequestedRef = useRef(new Set<string>())
@@ -474,6 +478,7 @@ export function AiPanel({
           () => (trackChangesRef.current ? { author: AI_REVISION_AUTHOR } : undefined),
         ),
         createFilesSkill(() => attachmentsRef.current),
+        ...(userSkills ?? []),
       ]),
       captureSnapshot: () => editorRef.current.getJSON() as PmNode,
       events: {
@@ -584,22 +589,8 @@ export function AiPanel({
             }
             return next
           })
-          // Signed-out failures get an inline sign-in button; detected via
-          // gsk status rather than matching the localized error text
-          void window.desktop
-            .aiGskStatus()
-            .then((status) => {
-              if (status.loggedIn) return
-              setChat((prev) => {
-                const next = [...prev]
-                const last = next.at(-1)
-                if (last?.role === 'assistant' && last.error) {
-                  next[next.length - 1] = { ...last, loginRequired: true }
-                }
-                return next
-              })
-            })
-            .catch(() => {})
+          // [BYOK] every provider is user-configured (BYOK); no shared account
+          // login to gate on, so just surface the raw error.
           setBusy(false)
         },
       },
@@ -817,7 +808,7 @@ export function AiPanel({
   if (!open) {
     return (
       <button className="ai-rail" title={t('appExpandAiPanel')} onClick={onExpand}>
-        <GensparkMark size={22} />
+        <BrandMark size={22} />
       </button>
     )
   }
@@ -848,10 +839,15 @@ export function AiPanel({
       />
       <div className="ai-panel-header">
         <span className="ai-panel-title">
-          <GensparkMark size={22} />
+          <BrandMark size={22} />
           {t('aiPanelTitle')}
         </span>
         <div className="ai-panel-header-actions">
+          {onOpenSettings && (
+            <button className="ai-header-btn" onClick={onOpenSettings} title={t('appAiSettings')}>
+              <IconGear size={15} />
+            </button>
+          )}
           {chat.length > 0 && (
             <button className="ai-header-btn" onClick={newChat} title={t('aiNewChatTitle')}>
               <IconNewChat size={16} />
@@ -946,11 +942,6 @@ export function AiPanel({
               {entry.tools && entry.tools.length > 0 && <ToolChipList tools={entry.tools} />}
               {entry.error && (
                 <div className="ai-msg-error">{t('aiErrorPrefix', { error: entry.error })}</div>
-              )}
-              {entry.loginRequired && (
-                <button className="ai-login-btn" onClick={() => void window.desktop.aiGskLogin()}>
-                  {t('aiGskLoginBtn')}
-                </button>
               )}
               {showToolbar && (
                 <div className="ai-msg-toolbar">

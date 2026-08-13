@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
-import { GensparkMark } from '../ribbon-icons'
+import { BrandMark } from '../ribbon-icons'
 import type { ChangePlan } from '../../domain/workbook.types'
 import { ATTACHMENT_IMAGE_EXTS, type AttachmentMeta } from '../../shared/desktop-api'
 import { useI18n, type TFunc } from '../i18n/locale'
@@ -28,7 +28,7 @@ const PASTE_MIME_EXT: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-/** File-type icons for attachment cards (Genspark attachment icon set); exts the
+/** File-type icons for attachment cards (Hi-office attachment icon set); exts the
  *  attachment allowlist doesn't accept yet are mapped ahead so they light up when added */
 const ATTACHMENT_CARD_ICON_GROUPS: [icon: string, exts: string[]][] = [
   [fileWordIcon, ['doc', 'docx']],
@@ -140,8 +140,6 @@ export interface AiChatMessage {
   readonly isError?: boolean | undefined
   /** the run failed and this user message was rolled back out of the model context */
   readonly undelivered?: boolean | undefined
-  /** the run failed because Genspark is signed out — render an inline sign-in button */
-  readonly loginRequired?: boolean | undefined
   /** Set when this message reflects an auto-applied plan; renders an inline [Undo] button. */
   readonly autoApplied?: { readonly opCount: number } | undefined
 }
@@ -167,6 +165,7 @@ export function AiChatPanel({
   onUndo,
   onExpand,
   onCollapse,
+  onOpenSettings,
 }: {
   readonly isOpen: boolean
   /** the workbook has cells with content — empty workbooks get "build me a sheet" copy instead */
@@ -194,6 +193,7 @@ export function AiChatPanel({
   readonly onUndo: () => void
   readonly onExpand: () => void
   readonly onCollapse: () => void
+  readonly onOpenSettings?: () => void
 }): React.JSX.Element {
   const { t } = useI18n()
   const chatRef = useRef<HTMLDivElement | null>(null)
@@ -202,7 +202,7 @@ export function AiChatPanel({
   const [dragOver, setDragOver] = useState(false)
   const asideRef = useRef<HTMLElement | null>(null)
   const [resizing, setResizing] = useState(false)
-  /** data-URL previews for image attachments, keyed by path (Genspark composer thumbnails) */
+  /** data-URL previews for image attachments, keyed by path (Hi-office composer thumbnails) */
   const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string>>({})
   /** image paths with a read already issued — one readAttachmentImage per attach, even while pending */
   const previewRequestedRef = useRef(new Set<string>())
@@ -328,7 +328,7 @@ export function AiChatPanel({
     return (
       <aside className="copilot collapsed">
         <button className="expand-copilot" onClick={onExpand} title={t('aiOpenAssistant')}>
-          <GensparkMark size={22} />
+          <BrandMark size={22} />
         </button>
       </aside>
     )
@@ -389,14 +389,19 @@ export function AiChatPanel({
         onPointerDown={startResize}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Genspark"
+        aria-label="Hi-office"
       />
       <header className="ai-panel-header">
         <span className="ai-panel-title">
-          <GensparkMark size={22} />
-          Genspark
+          <BrandMark size={22} />
+          Hi-office
         </span>
         <div className="ai-panel-header-actions">
+          {onOpenSettings && (
+            <button className="ai-header-btn" onClick={onOpenSettings} title={t('appAiSettings')}>
+              <IconGear size={15} />
+            </button>
+          )}
           {(chat.length > 0 || historicChat.length > 0) && (
             <button className="ai-header-btn" onClick={onNewChat} title={t('aiNewChat')}>
               <IconNewChat size={15} />
@@ -473,14 +478,6 @@ export function AiChatPanel({
                       {t('aiUndo')}
                     </button>
                   </div>
-                )}
-                {entry.loginRequired && (
-                  <button
-                    className="ai-login-btn"
-                    onClick={() => void window.desktopApi.aiGskLogin()}
-                  >
-                    {t('aiGskLoginBtn')}
-                  </button>
                 )}
               </>
             )}
@@ -690,6 +687,15 @@ function IconCollapse({ size }: { size: number }): React.JSX.Element {
       <rect x="1.5" y="2.5" width="13" height="11" rx="1" />
       <path d="M5.5 2.5v11" />
       <path d="M12.5 8H8.1M9.8 5.9 7.7 8l2.1 2.1" strokeWidth="1.3" strokeLinejoin="round" />
+    </Svg>
+  )
+}
+
+function IconGear({ size }: { size: number }): React.JSX.Element {
+  return (
+    <Svg size={size}>
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" strokeWidth="1.3" strokeLinecap="round" />
     </Svg>
   )
 }

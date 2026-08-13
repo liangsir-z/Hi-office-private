@@ -5,6 +5,7 @@ import type {
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
+  CreateSkillInput,
   DesktopApi,
   MenuCommand,
 } from '../shared/ipc'
@@ -67,13 +68,22 @@ const api: DesktopApi = {
   aiChat: (request: AiChatRequest) => ipcRenderer.invoke('ai:chat', request),
   aiStream: (request: AiStreamRequest) => ipcRenderer.invoke('ai:stream', request),
   aiStreamCancel: (requestId: string) => ipcRenderer.invoke('ai:stream-cancel', requestId),
-  aiGskStatus: (withEmail?: boolean) => ipcRenderer.invoke('ai:gsk-status', withEmail),
-  aiGskLogin: () => ipcRenderer.invoke('ai:gsk-login'),
   webSearch: (query: string, maxResults?: number) =>
     ipcRenderer.invoke('ai:web-search', query, maxResults),
   imageSearch: (query: string, maxResults?: number) =>
     ipcRenderer.invoke('ai:image-search', query, maxResults),
   fetchImage: (url: string) => ipcRenderer.invoke('ai:fetch-image', url),
+  skillList: () => ipcRenderer.invoke('skill:list'),
+  skillRead: (dir: string) => ipcRenderer.invoke('skill:read', dir),
+  skillDir: () => ipcRenderer.invoke('skill:dir'),
+  skillOpenDir: () => ipcRenderer.invoke('skill:open-dir'),
+  skillCreate: (input: CreateSkillInput) => ipcRenderer.invoke('skill:create', input),
+  templateList: () => ipcRenderer.invoke('template:list', 'docs'),
+  templateGet: (id: string) => ipcRenderer.invoke('template:get', 'docs', id),
+  templateCreate: (input: { name: string; kind: string; payload: unknown }) =>
+    ipcRenderer.invoke('template:create', 'docs', input),
+  templateRename: (id: string, name: string) => ipcRenderer.invoke('template:rename', 'docs', id, name),
+  templateDelete: (id: string) => ipcRenderer.invoke('template:delete', 'docs', id),
   pickAttachments: () => ipcRenderer.invoke('files:pick'),
   addAttachmentPaths: (paths: string[]) => ipcRenderer.invoke('files:add', paths),
   addPastedImage: (data: ArrayBuffer, ext: string) =>

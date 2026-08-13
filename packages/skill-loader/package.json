@@ -1,0 +1,22 @@
+{
+  "name": "@genoffice/skill-loader",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "description": "Discovers and parses user-supplied agent skills (SKILL.md + tools.json) into AgentSkill objects; shared by docs / sheets / slides.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./main": "./src/main.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'no tests yet' && exit 0"
+  },
+  "dependencies": {
+    "@genoffice/agent-core": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

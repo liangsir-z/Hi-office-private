@@ -7,8 +7,11 @@ import type {
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
-  GenSparkAccountStatus,
 } from '@genoffice/ai-provider'
+import type { CreateSkillInput, CreateSkillResult, SkillFiles, SkillMeta } from '@genoffice/skill-loader'
+export type { CreateSkillResult, CreateSkillInput, SkillFiles, SkillMeta } from '@genoffice/skill-loader'
+import type { TemplateInfo, TemplateRecord } from '@genoffice/template-store'
+export type { TemplateInfo, TemplateRecord } from '@genoffice/template-store'
 
 const MAX_RANGE_CELLS = 20_000
 const cellScalarSchema = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
@@ -1932,16 +1935,20 @@ export interface DesktopApi {
   hasQueuedWorkbook(): Promise<boolean>
   getAiSettings(): Promise<AiSettings>
   setAiSettings(settings: AiSettings): Promise<void>
+  skillList(): Promise<SkillMeta[]>
+  skillRead(dir: string): Promise<SkillFiles | null>
+  skillDir(): Promise<string>
+  skillOpenDir(): Promise<void>
+  skillCreate(input: CreateSkillInput): Promise<CreateSkillResult>
+  templateList(): Promise<TemplateInfo[]>
+  templateGet(id: string): Promise<TemplateRecord | null>
+  templateCreate(input: { name: string; kind: string; payload: unknown }): Promise<{ ok: true; id: string } | { ok: false; error: string }>
+  templateRename(id: string, name: string): Promise<{ ok: true } | { ok: false; error: string }>
+  templateDelete(id: string): Promise<{ ok: true } | { ok: false; error: string }>
   aiChat(request: AiChatRequest): Promise<AiChatResponse>
   /// start a streaming AI call; deltas arrive via onAiStream with the same requestId
   aiStream(request: AiStreamRequest): Promise<void>
   aiStreamCancel(requestId: string): Promise<void>
-  /// Genspark account status (gsk login state); withEmail also returns the email
-  /// (needs a network request, slower)
-  aiGskStatus(withEmail?: boolean): Promise<GenSparkAccountStatus>
-  /// Opens the browser to sign in to Genspark (fire-and-forget; aiGskStatus
-  /// becomes signed-in on completion)
-  aiGskLogin(): Promise<void>
   /// Web search (main-process Serper/DuckDuckGo, shared with docs/slides)
   webSearch(query: string, maxResults?: number): Promise<WebSearchResult>
   onAiStream(handler: (chunk: AiStreamChunk) => void): () => void

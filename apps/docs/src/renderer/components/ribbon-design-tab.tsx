@@ -212,7 +212,18 @@ interface DesignTabProps extends TabProps {
   onWatermark: (text: string | null) => void
   themeFonts: ThemeFonts | null
   onThemeFonts: (fonts: ThemeFonts) => void
+  themeColors: ThemeColors | null
   onThemeColors: (colors: ThemeColors) => void
+  /** [templates] user-saved theme templates for the gallery (with payload colors for swatches) */
+  userTemplates?: { id: string; name: string; colors?: Record<string, string> }[]
+  /** [templates] apply a user template by id */
+  onApplyTemplate?: (id: string) => void
+  /** [templates] save the current theme (fonts+colors) as a named reusable theme (WPS "保存当前主题") */
+  onSaveCurrentTheme?: () => void
+  /** [themes] open the "New Theme Fonts" editor (WPS 新建主题字体) */
+  onNewThemeFonts?: () => void
+  /** [themes] open the "New Theme Colors" editor (WPS 新建主题颜色) */
+  onNewThemeColors?: () => void
 }
 
 export function DesignTab({
@@ -227,7 +238,13 @@ export function DesignTab({
   onWatermark,
   themeFonts,
   onThemeFonts,
+  themeColors,
   onThemeColors,
+  userTemplates,
+  onApplyTemplate,
+  onSaveCurrentTheme,
+  onNewThemeFonts,
+  onNewThemeColors,
 }: DesignTabProps) {
   const { t, lang } = useI18n()
   const watermarkPresets = [
@@ -263,6 +280,20 @@ export function DesignTab({
             </button>
             {dropdown === 'theme' && (
               <div className="layout-menu">
+                {onSaveCurrentTheme && (themeFonts || themeColors) && (
+                  <>
+                    <button
+                      className="layout-menu-save"
+                      onClick={() => {
+                        onSaveCurrentTheme()
+                        setDropdown(() => null)
+                      }}
+                    >
+                      {t('ribbonSaveCurrentTheme')}
+                    </button>
+                    <div className="layout-menu-sep" />
+                  </>
+                )}
                 {THEME_PRESETS.map((p) => (
                   <button key={p.nameKey} onClick={() => applyTheme(p)}>
                     <span className="theme-accent-row">
@@ -277,6 +308,27 @@ export function DesignTab({
                     {t(p.nameKey)}
                   </button>
                 ))}
+                {userTemplates && userTemplates.length > 0 && onApplyTemplate && (
+                  <>
+                    <div className="layout-menu-sep">{t('appMyTemplates')}</div>
+                    {userTemplates.map((tpl) => (
+                      <button key={tpl.id} onClick={() => onApplyTemplate(tpl.id)}>
+                        <span className="theme-accent-row">
+                          {['accent1', 'accent2', 'accent3', 'accent4'].map((k) => (
+                            <span
+                              key={k}
+                              className="theme-accent-dot"
+                              style={{
+                                background: tpl.colors?.[k] ? `#${tpl.colors[k]}` : 'var(--border-strong)',
+                              }}
+                            />
+                          ))}
+                        </span>
+                        {tpl.name}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -311,6 +363,20 @@ export function DesignTab({
                     {t(p.nameKey)}
                   </button>
                 ))}
+                {onNewThemeFonts && (
+                  <>
+                    <div className="layout-menu-sep" />
+                    <button
+                      className="layout-menu-save"
+                      onClick={() => {
+                        onNewThemeFonts()
+                        setDropdown(() => null)
+                      }}
+                    >
+                      {t('ribbonNewThemeFonts')}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -349,6 +415,20 @@ export function DesignTab({
                     {t(p.nameKey)}
                   </button>
                 ))}
+                {onNewThemeColors && (
+                  <>
+                    <div className="layout-menu-sep" />
+                    <button
+                      className="layout-menu-save"
+                      onClick={() => {
+                        onNewThemeColors()
+                        setDropdown(() => null)
+                      }}
+                    >
+                      {t('ribbonNewThemeColors')}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

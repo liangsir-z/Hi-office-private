@@ -745,6 +745,8 @@ export function Ribbon({
   onInsertImage,
   onBackground,
   onApplyTheme,
+  userTemplates,
+  onApplyUserTemplate,
   onAddSlide,
   onAddSlideWithLayout,
   onAddSection,
@@ -1623,6 +1625,35 @@ export function Ribbon({
                       ))}
                     </span>
                     <span className="theme-card-name">{themeDisplayName(tp, t)}</span>
+                  </button>
+                ))}
+                {userTemplates.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    className="theme-card"
+                    disabled={!hasDoc}
+                    title={t('appMyTemplates') + ': ' + tpl.name}
+                    onClick={() => onApplyUserTemplate?.(tpl.id)}
+                    style={{
+                      background: tpl.colors?.lt1 ? `#${tpl.colors.lt1}` : 'var(--surface)',
+                      color: tpl.colors?.dk1 ? `#${tpl.colors.dk1}` : 'inherit',
+                    }}
+                  >
+                    <span className="theme-card-aa" style={{ fontFamily: tpl.majorFont }}>
+                      Aa
+                    </span>
+                    <span className="theme-card-dots">
+                      {['accent1', 'accent2', 'accent3', 'accent4'].map((k) => (
+                        <span
+                          key={k}
+                          className="theme-card-dot"
+                          style={{
+                            background: tpl.colors?.[k] ? `#${tpl.colors[k]}` : 'var(--border-strong)',
+                          }}
+                        />
+                      ))}
+                    </span>
+                    <span className="theme-card-name">{tpl.name}</span>
                   </button>
                 ))}
               </div>

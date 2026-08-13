@@ -1,5 +1,7 @@
 import { app } from 'electron'
 import type { BrowserWindow } from 'electron'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateInfo } from 'electron-updater'
 import { createI18n, getUiLang, htmlLang } from '@genoffice/i18n'
@@ -324,6 +326,19 @@ export function initAutoUpdater(
   // — dmg is first-install only).
   if (!app.isPackaged) return
   if (process.platform !== 'win32' && process.platform !== 'darwin') return
+
+  // Hi-office is a self-hosted BYOK build with no update CDN. When the release
+  // pipeline sets no GENOFFICE_UPDATE_URL, electron-builder bakes no
+  // app-update.yml into resources/. electron-updater's default logger writes
+  // to process.stdout, which is a closed pipe in a packaged app launched from
+  // the shell (no parent terminal) — so merely configuring autoUpdater would
+  // throw EPIPE on the first console.log and crash the main process. If there
+  // is no update feed baked in, leave the updater dormant.
+  const updateFeed = join(process.resourcesPath, 'app-update.yml')
+  if (!existsSync(updateFeed)) {
+    log('no app-update.yml in resources — updater dormant')
+    return
+  }
 
   updaterActive = true
   autoUpdater.channel = CHANNEL_FEED[initialChannel]

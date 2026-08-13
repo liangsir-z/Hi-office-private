@@ -11,6 +11,5 @@ export function createElectronTransport(getSettings: () => AiSettings): AgentTra
     getSettings,
     unknownErrorText: () => t('aiUnknownError'),
     timeoutErrorText: () => t('aiTimeoutError'),
-    creditsErrorText: () => t('aiCreditsExhausted'),
   })
 }

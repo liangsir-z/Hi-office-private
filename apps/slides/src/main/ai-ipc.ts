@@ -16,20 +16,12 @@ import {
   type AiSettings,
   type AiStreamChunk,
   type AiStreamRequest,
-  type GenSparkAccountStatus,
   type LegacyAiSettings,
 } from '@genoffice/ai-provider'
+import { registerSkillIpc } from '@genoffice/skill-loader/main'
+import { registerTemplateIpc } from '@genoffice/template-store'
 import { fetchRemoteImage } from '@genoffice/electron-utils'
-import {
-  webSearch,
-  imageSearch,
-  ensureGenofficeLogin,
-  gskApiKey,
-  gskGenerateImage,
-  gskAnalyzeMedia,
-  gskLoginInfo,
-  hasGskAuth,
-} from '@genoffice/ai-search'
+import { webSearch, imageSearch } from '@genoffice/ai-search'
 import { addPicture } from '@genoffice/pptx-engine'
 import { EMU_PER_PX_96 } from '@genoffice/pptx-render'
 import { tm } from './i18n-main'
@@ -59,24 +51,8 @@ export function registerAiIpc(): void {
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
     const settings = resolveAiSettings(stored, defaultAiSettings())
-    // AI features all go through Genspark (gsk login); stored settings that chose another provider are normalized back
-    settings.provider = 'genspark'
+    // [BYOK] allow user-chosen provider.
     return settings
-  })
-
-  // Genspark account (gsk login state): the auth source for AI features; when logged out the frontend uses this to guide login
-  ipcMain.handle(
-    'ai:gsk-status',
-    async (_event, withEmail?: boolean): Promise<GenSparkAccountStatus> => {
-      if (!hasGskAuth()) return { loggedIn: false }
-      if (!withEmail) return { loggedIn: true }
-      const info = await gskLoginInfo()
-      return info?.email ? { loggedIn: true, email: info.email } : { loggedIn: true }
-    },
-  )
-
-  ipcMain.handle('ai:gsk-login', () => {
-    ensureGenofficeLogin((url) => void shell.openExternal(url))
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
@@ -88,20 +64,12 @@ export function registerAiIpc(): void {
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? 8192
     const provider = settings.provider
-    let config = settings.providers?.[provider]
-    // The genspark key never enters the settings file; it is fetched from the gsk login state per request
-    if (provider === 'genspark' && config && !config.apiKey) {
-      config = { ...config, apiKey: gskApiKey() }
-    }
+    const config = settings.providers?.[provider]
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:stream-chunk', chunk)
     }
     if (!config?.apiKey) {
-      send({
-        requestId,
-        type: 'error',
-        error: provider === 'genspark' ? tm('errGskNotLoggedIn') : tm('errNoApiKey', { provider }),
-      })
+      send({ requestId, type: 'error', error: tm('errNoApiKey', { provider }) })
       return
     }
     if (!config.model) {
@@ -168,6 +136,15 @@ export function registerAiIpc(): void {
       return { images: [], method: 'error', error: String(err) }
     }
   })
+
+  // [skills] user-supplied + bundled agent skills discovery
+  const bundledSkillsRoot = app.isPackaged
+    ? join(process.resourcesPath, 'skills-builtin')
+    : join(app.getAppPath(), '..', '..', 'packages', 'skills-builtin', 'skills')
+  registerSkillIpc(ipcMain, app.getPath('userData'), shell, bundledSkillsRoot)
+
+  // [templates] user template store
+  registerTemplateIpc(ipcMain, app.getPath('userData'))
 }
 
 // ── ai:* handlers unique to slides ──────────────────────────────────────
@@ -176,7 +153,12 @@ export function registerAiIpc(): void {
 // never called; docs does not have these channels, so putting them in the wrong place raises
 // "No handler registered".
 export function registerSlidesOnlyAiIpc(): void {
-  // gsk (Genspark CLI) capabilities: AI image generation / media analysis. Returns an error prompt when not logged in.
+  // [BYOK] AI image generation. Configurable via ai-settings.json's `imageGen` field.
+  //   - not configured / provider='none' → disabled, returns a friendly error (the AI
+  //     agent then avoids the generate_image tool and falls back to web image search)
+  //   - configured → routes to a self-chosen cloud text-to-image backend.
+  //     The adapter is a placeholder for now (returns errImageGenNotWired); wire in the
+  //     real call (aliyun-wanx / volcengine-jimeng / custom OpenAI-compatible) per provider.
   ipcMain.handle(
     'ai:generate-image',
     async (
@@ -189,39 +171,30 @@ export function registerSlidesOnlyAiIpc(): void {
         imageSize?: string
       },
     ) => {
-      if (!hasGskAuth()) return { error: tm('errGskCli') }
+      const stored = readJson<Partial<AiSettings>>(AI_SETTINGS_PATH(), {})
+      const cfg = stored.imageGen
+      const provider = cfg?.provider
+      if (!provider || provider === 'none' || !cfg?.apiKey) {
+        return { error: tm('errImageGenDisabled') }
+      }
       try {
-        const r = await gskGenerateImage({
-          prompt: String(op.prompt),
-          model: op.model ? String(op.model) : undefined,
-          referenceImageUrls: Array.isArray(op.referenceImageUrls)
-            ? op.referenceImageUrls.map(String)
-            : undefined,
-          aspectRatio: op.aspectRatio ? String(op.aspectRatio) : undefined,
-          imageSize: op.imageSize ? String(op.imageSize) : undefined,
-        })
-        return { url: r.url }
+        // TODO[BYOK]: implement the real provider call here. Signature kept compatible
+        // with the old cloudGenerateImage: { prompt, model?, referenceImageUrls?, aspectRatio?,
+        // imageSize? } → { url }. Return a publicly downloadable image URL.
+        //   - aliyun-wanx: POST /api/v1/services/aigc/text2image/image-synthesis (async poll)
+        //   - volcengine-jimeng: POST /?Action=CVProcess (visual tech)
+        //   - custom: POST {baseUrl}/... (OpenAI-compatible image API or similar)
+        // Until wired, signal that configuration was accepted but generation is pending.
+        return { error: tm('errImageGenNotWired', { provider }) }
       } catch (err) {
         return { error: err instanceof Error ? err.message : String(err) }
       }
     },
   )
 
-  ipcMain.handle(
-    'ai:analyze-media',
-    async (_event, op: { mediaUrls: string[]; requirements: string }) => {
-      if (!hasGskAuth()) return { error: tm('errGskCli') }
-      try {
-        const text = await gskAnalyzeMedia({
-          mediaUrls: (op.mediaUrls ?? []).map(String),
-          requirements: String(op.requirements ?? ''),
-        })
-        return { text }
-      } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) }
-      }
-    },
-  )
+  // [BYOK] Media analysis / transcription is retired (was Hi-office-only, low usage).
+  // Returns a disabled notice so the AI agent stops attempting the tool.
+  ipcMain.handle('ai:analyze-media', async () => ({ error: tm('errMediaDisabled') }))
 
   // Download an image from a URL and insert it into the given page (image search -> insert in one step; download in the main process avoids CORS)
   ipcMain.handle(

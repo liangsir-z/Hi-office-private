@@ -238,6 +238,10 @@ export interface Props {
   onBackground: (color: string, allSlides: boolean) => void
   /** Apply a built-in theme (colors + font scheme, applied to all pages) */
   onApplyTheme: (preset: SlideThemePreset) => void
+  /** [templates] user-saved theme templates for the gallery (colors/font resolved for swatches) */
+  userTemplates: { id: string; name: string; colors?: Record<string, string>; majorFont?: string }[]
+  /** [templates] apply a user template by id (host fetches payload + reshapes) */
+  onApplyUserTemplate?: (id: string) => void
   /** New blank slide (inherits the current page's layout background, empty content) */
   onAddSlide: () => void
   /** New slide with a given layout */

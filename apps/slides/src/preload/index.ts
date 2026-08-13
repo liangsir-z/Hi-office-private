@@ -74,6 +74,7 @@ import type {
   PrintSlidesOp,
   MenuCommand,
   OpenResult,
+  CreateSkillInput,
   SlidesApi,
 } from '../shared/ipc'
 
@@ -98,16 +99,6 @@ const api: SlidesApi = {
     atIndex?: number,
     deckName?: string,
   ) => ipcRenderer.invoke('slides:html-to-pptx', pagesHtml, fitWidthPx, mode, atIndex, deckName),
-  cloudGenStatus: () => ipcRenderer.invoke('slides:cloud-gen-status'),
-  cloudGeneratePage: (op: {
-    brief: string
-    title?: string
-    styleSkill?: string
-    deckContext?: Record<string, unknown>
-    images?: { url: string; caption?: string }[]
-    width?: number
-    height?: number
-  }) => ipcRenderer.invoke('slides:cloud-page-generate', op),
   editText: (op: EditTextOp) => ipcRenderer.invoke('slides:edit-text', op),
   setElementFont: (op: SetElementFontOp) => ipcRenderer.invoke('slides:set-element-font', op),
   setElementParagraphFormat: (op: SetElementParagraphFormatOp) =>
@@ -265,10 +256,19 @@ const api: SlidesApi = {
   },
   getAiSettings: () => ipcRenderer.invoke('ai:get-settings'),
   setAiSettings: (settings: AiSettings) => ipcRenderer.invoke('ai:set-settings', settings),
+  skillList: () => ipcRenderer.invoke('skill:list'),
+  skillRead: (dir: string) => ipcRenderer.invoke('skill:read', dir),
+  skillDir: () => ipcRenderer.invoke('skill:dir'),
+  skillOpenDir: () => ipcRenderer.invoke('skill:open-dir'),
+  skillCreate: (input: CreateSkillInput) => ipcRenderer.invoke('skill:create', input),
+  templateList: () => ipcRenderer.invoke('template:list', 'slides'),
+  templateGet: (id: string) => ipcRenderer.invoke('template:get', 'slides', id),
+  templateCreate: (input: { name: string; kind: string; payload: unknown }) =>
+    ipcRenderer.invoke('template:create', 'slides', input),
+  templateRename: (id: string, name: string) => ipcRenderer.invoke('template:rename', 'slides', id, name),
+  templateDelete: (id: string) => ipcRenderer.invoke('template:delete', 'slides', id),
   aiStream: (request: AiStreamRequest) => ipcRenderer.invoke('ai:stream', request),
   aiStreamCancel: (requestId: string) => ipcRenderer.invoke('ai:stream-cancel', requestId),
-  aiGskStatus: (withEmail?: boolean) => ipcRenderer.invoke('ai:gsk-status', withEmail),
-  aiGskLogin: () => ipcRenderer.invoke('ai:gsk-login'),
   webSearch: (query: string, maxResults?: number) =>
     ipcRenderer.invoke('ai:web-search', query, maxResults),
   imageSearch: (query: string, maxResults?: number) =>
@@ -291,7 +291,6 @@ const api: SlidesApi = {
   }) => ipcRenderer.invoke('ai:generate-image', op),
   analyzeMedia: (op: { mediaUrls: string[]; requirements: string }) =>
     ipcRenderer.invoke('ai:analyze-media', op),
-  gskStatus: () => ipcRenderer.invoke('ai:gsk-status'),
   onAiStream: (handler: (chunk: AiStreamChunk) => void) => {
     const listener = (_e: IpcRendererEvent, chunk: AiStreamChunk) => handler(chunk)
     ipcRenderer.on('ai:stream-chunk', listener)

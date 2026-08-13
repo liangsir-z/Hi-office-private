@@ -1,12 +1,6 @@
 import type { AgentMessage, AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
 
-export type AiProviderId = 'genspark' | 'anthropic' | 'gemini' | 'deepseek' | 'openai' | 'custom'
-
-/** Genspark account status (gsk login state; the sole auth source for AI features) */
-export interface GenSparkAccountStatus {
-  loggedIn: boolean
-  email?: string
-}
+export type AiProviderId = 'anthropic' | 'gemini' | 'deepseek' | 'openai' | 'custom'
 
 export interface AiProviderConfig {
   apiKey: string
@@ -27,6 +21,32 @@ export interface AiProviderMeta {
 export interface AiSettings {
   provider: AiProviderId
   providers: Record<AiProviderId, AiProviderConfig>
+  /**
+   * [BYOK] Optional image-generation backend (used by Slides' generate_image tool).
+   * Omit/leave provider empty to DISABLE image generation entirely — the tool
+   * returns a friendly "not configured" error instead of calling Hi-office.
+   * Fill in a provider + apiKey to route to a self-chosen cloud text-to-image API.
+   */
+  imageGen?: ImageGenConfig | undefined
+  /**
+   * [skills] Per-skill enable flags, keyed by skill directory name. A skill is
+   * loaded only when this map has `true` for its dir; absence defaults to ENABLED
+   * (so freshly-dropped skills work without a settings round-trip). Setting
+   * `false` disables a skill without deleting its files.
+   */
+  skills?: Record<string, boolean> | undefined
+}
+
+/** Identity of an image-generation backend. Extend as more providers are wired in. */
+export type ImageGenProvider = 'aliyun-wanx' | 'volcengine-jimeng' | 'custom'
+
+export interface ImageGenConfig {
+  /** empty/'none' = disabled. When set, the generate_image tool calls this backend. */
+  provider: ImageGenProvider | 'none'
+  apiKey: string
+  /** endpoint base url (custom provider) or model id (cloud providers), backend-specific */
+  model?: string | undefined
+  baseUrl?: string | undefined
 }
 
 /** pre-provider settings shape (single OpenAI-compatible endpoint); migrated into "custom" */

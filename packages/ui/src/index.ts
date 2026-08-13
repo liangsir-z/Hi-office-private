@@ -1,4 +1,5 @@
 export { AiComposer } from './AiComposer'
+export { AiSettingsModal, type AiSettingsModalProps, type AiSettingsT } from './AiSettingsModal'
 export { AiTypingIndicator } from './AiTypingIndicator'
 export { IconSend, IconStop, type IconProps } from './icons'
 export { Markdown } from './Markdown'

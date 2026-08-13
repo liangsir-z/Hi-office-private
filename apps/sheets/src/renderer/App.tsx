@@ -103,7 +103,9 @@ import {
   COMPLETED_VIA_TOOLS_TEXT,
   composeSkills,
   type AgentImage,
+  type AgentSkill,
 } from '@genoffice/agent-core'
+import { loadUserSkills, type SkillApi } from '@genoffice/skill-loader'
 import type { AiSettings } from '@genoffice/ai-provider'
 import { type WorkbookOperation } from '../domain/workbook-dsl'
 import { columnIndex, columnLabel, parseAddress, parseRange } from '../domain/cell-address'
@@ -558,6 +560,9 @@ export function App(): React.JSX.Element {
   const [aiSettings, setAiSettingsState] = useState<AiSettings | null>(null)
   const aiSettingsRef = useRef<AiSettings | null>(null)
   aiSettingsRef.current = aiSettings
+  /** user-supplied skills; bumping loopNonce rebuilds the agent loop to inject them */
+  const [userSkills, setUserSkills] = useState<AgentSkill[]>([])
+  const [loopNonce, setLoopNonce] = useState(0)
   const [aiBusy, setAiBusy] = useState(false)
   // Display history survives restarts via localStorage; the AgentLoop's model
   // context does not, so restored turns are read-only transcript.
@@ -770,7 +775,10 @@ export function App(): React.JSX.Element {
   const runMutatedRef = useRef(false)
 
   const agentLoopRef = useRef<AgentLoop | null>(null)
-  if (!agentLoopRef.current) {
+  const loopNonceRef = useRef(-1)
+  // rebuild the loop when user skills load (loopNonce bump) so they join composeSkills
+  if (!agentLoopRef.current || loopNonceRef.current !== loopNonce) {
+    loopNonceRef.current = loopNonce
     agentLoopRef.current = new AgentLoop({
       transport: createElectronTransport(() => aiSettingsRef.current!),
       systemSuffix: aiLangDirective,
@@ -778,6 +786,7 @@ export function App(): React.JSX.Element {
         createWorkbookSkill(sheetsSkillDeps()),
         createFilesSkill(() => attachmentsRef.current),
         createSearchSkill(),
+        ...userSkills,
       ]),
       // guide loading adds a tool round; the default 8 cuts off multi-step work
       maxTurns: 24,
@@ -909,22 +918,7 @@ export function App(): React.JSX.Element {
             }
             return next
           })
-          // Signed-out failures get an inline sign-in button; detected via
-          // gsk status rather than matching the localized error text
-          void window.desktopApi
-            .aiGskStatus()
-            .then((status) => {
-              if (status.loggedIn) return
-              setChat((previous) => {
-                const next = [...previous]
-                const last = next.at(-1)
-                if (last?.role === 'assistant' && last.isError) {
-                  next[next.length - 1] = { ...last, loginRequired: true }
-                }
-                return next
-              })
-            })
-            .catch(() => {})
+          // [BYOK] every provider is user-configured; just finalize the failed turn.
           void autoSaveCompletedAiRun().finally(() => setAiBusy(false))
         },
       },
@@ -936,10 +930,8 @@ export function App(): React.JSX.Element {
     if (!settings) return false
     const config = settings.providers[settings.provider]
     if (!config?.model) return false
-    // Genspark's key never lands in the settings file; the main process injects
-    // it from the gsk login state. When logged out, requests return an error
-    // guiding sign-in — not intercepted here.
-    return settings.provider === 'genspark' || !!config.apiKey
+    // [BYOK] every provider must carry its own apiKey in settings.
+    return !!config.apiKey
   }
 
   /** Image attachments read as base64 and sent multimodal with this user message
@@ -1063,7 +1055,24 @@ export function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    void window.desktopApi.getAiSettings().then(setAiSettingsState)
+    void window.desktopApi.getAiSettings().then(async (s) => {
+      setAiSettingsState(s)
+      // [skills] load user-supplied skills, filtered by per-skill enable flags
+      const sheetsApi: SkillApi = { desktopApi: window.desktopApi as unknown as Record<string, (...a: unknown[]) => unknown> }
+      const skills = await loadUserSkills({
+        app: 'sheets',
+        api: sheetsApi,
+        bridge: {
+          listSkills: () => window.desktopApi.skillList(),
+          readSkill: (dir) => window.desktopApi.skillRead(dir),
+        },
+        isEnabled: (dir) => s.skills?.[dir] !== false,
+      })
+      if (skills.length) {
+        setUserSkills(skills)
+        setLoopNonce((n) => n + 1) // triggers loop rebuild on next render
+      }
+    })
   }, [])
 
   useEffect(() => {

@@ -53,7 +53,7 @@ import {
 import { WRAP_OPTIONS } from './ContextMenu'
 import { CropDialog, CutoutDialog } from './PictureDialogs'
 import {
-  GensparkMark,
+  BrandMark,
   IconAlignCenter,
   IconAlignJustify,
   IconAlignLeft,
@@ -138,6 +138,16 @@ interface RibbonProps {
   onThemeFonts: (fonts: ThemeFonts) => void
   themeColors: ThemeColors | null
   onThemeColors: (colors: ThemeColors) => void
+  /** [templates] user-saved theme templates for the design gallery */
+  userTemplates?: { id: string; name: string; colors?: Record<string, string> }[]
+  /** [templates] apply a user template by id */
+  onApplyTemplate?: (id: string) => void
+  /** [templates] save the current theme as a named reusable theme (WPS 保存当前主题) */
+  onSaveCurrentTheme?: () => void
+  /** [themes] open the New Theme Fonts editor */
+  onNewThemeFonts?: () => void
+  /** [themes] open the New Theme Colors editor */
+  onNewThemeColors?: () => void
   /** Draw → pen / highlighter / eraser */
   inkTool: InkTool
   onInkTool: (tool: InkTool) => void
@@ -521,6 +531,11 @@ function RibbonInner({
   onThemeFonts,
   themeColors,
   onThemeColors,
+  userTemplates,
+  onApplyTemplate,
+  onSaveCurrentTheme,
+  onNewThemeFonts,
+  onNewThemeColors,
   inkTool,
   onInkTool,
   inkPen,
@@ -1772,7 +1787,7 @@ function RibbonInner({
           </div>
         ) : tab === 'home' ? (
           <>
-            {/* ---- Genspark AI (first slot: entry + one-click AI actions) ---- */}
+            {/* ---- Hi-office AI (first slot: entry + one-click AI actions) ---- */}
             <div className="ribbon-group">
               <div className="ribbon-group-items">
                 <button
@@ -1781,9 +1796,9 @@ function RibbonInner({
                   onClick={onToggleAi}
                 >
                   <span className="rb-big-icon">
-                    <GensparkMark size={26} />
+                    <BrandMark size={26} />
                   </span>
-                  <span>Genspark AI</span>
+                  <span>Hi-office AI</span>
                 </button>
                 <button
                   className="rb-big ai-entry"
@@ -1877,7 +1892,7 @@ function RibbonInner({
                   <span>{t('aiTidyBtn')}</span>
                 </button>
               </div>
-              <div className="ribbon-group-label">Genspark AI</div>
+              <div className="ribbon-group-label">Hi-office AI</div>
             </div>
 
             <div className="ribbon-sep" />
@@ -2652,7 +2667,13 @@ function RibbonInner({
             onWatermark={onWatermark}
             themeFonts={themeFonts}
             onThemeFonts={onThemeFonts}
+            themeColors={themeColors}
             onThemeColors={onThemeColors}
+            userTemplates={userTemplates}
+            onApplyTemplate={onApplyTemplate}
+            onSaveCurrentTheme={onSaveCurrentTheme}
+            onNewThemeFonts={onNewThemeFonts}
+            onNewThemeColors={onNewThemeColors}
           />
         ) : tab === 'layout' ? (
           <LayoutTab

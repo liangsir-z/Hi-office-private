@@ -52,8 +52,12 @@ import { AnimPreviewOverlay } from './components/AnimatedSlide'
 import { EquationDialog, HeaderFooterDialog, LinkDialog } from './components/InsertDialogs'
 import { CutoutDialog } from './components/CutoutDialog'
 import type { WordArtPreset } from '@genoffice/ui'
+import { AiSettingsModal } from '@genoffice/ui'
+import { loadUserSkills, type CreateSkillInput, type SkillApi, type SkillMeta } from '@genoffice/skill-loader'
+import type { TemplateInfo } from '@genoffice/template-store'
+import type { AgentSkill } from '@genoffice/agent-core'
 import type { ChartPresetDef, IconDef, SmartArtDef } from './insert-presets'
-import { GensparkMark, IconAiBeautify, IconAiFactCheck, IconAiImage } from './components/icons'
+import { BrandMark, IconAiBeautify, IconAiFactCheck, IconAiImage } from './components/icons'
 import { ToastHost } from './components/toast'
 import { showToast } from './components/toast-bus'
 import { t, useI18n } from './i18n/locale'
@@ -243,6 +247,14 @@ export function App() {
   const [path, setPath] = useState<string | null>(null)
   /** AiPanel reset key: incremented only on applyOpen (open/new file), not on draft path updates */
   const [aiPanelKey, setAiPanelKey] = useState(0)
+  /** user-supplied skills loaded once at startup */
+  const [userSkills, setUserSkills] = useState<AgentSkill[]>([])
+  /** skill metadata for the settings dialog's Skills section */
+  const [skillMetas, setSkillMetas] = useState<SkillMeta[]>([])
+  /** saved templates for the settings dialog's Templates section */
+  const [templates, setTemplates] = useState<TemplateInfo[]>([])
+  /** templates with payload resolved, for the design gallery swatches */
+  const [userTemplateColors, setUserTemplateColors] = useState<{ id: string; name: string; colors?: Record<string, string>; majorFont?: string }[]>([])
   /** Theme body default font (fallback for the font box when the selection has no text element) */
   const [defaultFont, setDefaultFont] = useState<string | null>(null)
   const [current, setCurrent] = useState(0)
@@ -397,6 +409,7 @@ export function App() {
   const [linkDialog, setLinkDialog] = useState<LinkDialogState | null>(null)
   const [hfDialog, setHfDialog] = useState<HfDialogState | null>(null)
   const [eqDialogOpen, setEqDialogOpen] = useState(false)
+  const [showAiSettings, setShowAiSettings] = useState(false)
   const recorderRef = useRef<{ rec: MediaRecorder; stream: MediaStream } | null>(null)
   const [recording, setRecording] = useState(false)
   // ── Layout picking: layout list (loaded after the file opens) ─────────────────
@@ -812,8 +825,48 @@ export function App() {
   useEffect(() => window.slidesApi.onRenamed((p) => setPath(p)), [])
 
   useEffect(() => {
-    void window.slidesApi.getAiSettings().then(setAiSettings)
+    void window.slidesApi.getAiSettings().then(async (s) => {
+      setAiSettings(s)
+      void window.slidesApi.templateList().then(setTemplates)
+      // [skills] load user-supplied skills, filtered by per-skill enable flags
+      const slidesApi: SkillApi = { slidesApi: window.slidesApi as unknown as Record<string, (...a: unknown[]) => unknown> }
+      const metas = await window.slidesApi.skillList()
+      setSkillMetas(metas)
+      const skills = await loadUserSkills({
+        app: 'slides',
+        api: slidesApi,
+        bridge: {
+          listSkills: () => Promise.resolve(metas),
+          readSkill: (dir) => window.slidesApi.skillRead(dir),
+        },
+        isEnabled: (dir) => s.skills?.[dir] !== false,
+      })
+      if (skills.length) {
+        setUserSkills(skills)
+        setAiPanelKey((k) => k + 1)
+      }
+    })
   }, [])
+
+  // [templates] pre-resolve template payloads so the design gallery can render swatches
+  useEffect(() => {
+    if (templates.length === 0) {
+      setUserTemplateColors([])
+      return
+    }
+    void Promise.all(
+      templates.map(async (tpl) => {
+        const rec = await window.slidesApi.templateGet(tpl.id)
+        const p = rec?.payload as { colors?: Record<string, string>; majorFont?: string } | undefined
+        return {
+          id: tpl.id,
+          name: tpl.name,
+          ...(p?.colors ? { colors: p.colors } : {}),
+          ...(p?.majorFont ? { majorFont: p.majorFont } : {}),
+        }
+      }),
+    ).then(setUserTemplateColors)
+  }, [templates])
 
   // Recent files for the start screen
   useEffect(() => {
@@ -2222,6 +2275,20 @@ export function App() {
         onInsertImage={() => void insertImage()}
         onBackground={(color, all) => void onBackground(color, all)}
         onApplyTheme={(preset) => void applyThemePreset(preset)}
+        userTemplates={userTemplateColors}
+        onApplyUserTemplate={async (id) => {
+          const rec = await window.slidesApi.templateGet(id)
+          if (!rec) return
+          const p = rec.payload as { colors?: Record<string, string>; majorFont?: string; minorFont?: string }
+          if (!p.colors) return
+          applyThemePreset({
+            id: rec.id,
+            name: rec.name,
+            colors: p.colors,
+            ...(p.majorFont ? { majorFont: p.majorFont } : {}),
+            ...(p.minorFont ? { minorFont: p.minorFont } : {}),
+          })
+        }}
         onAddSlide={() => void addSlide()}
         onAddSection={() => void addSectionAt(current)}
         onAddSlideWithLayout={(lp) => void addSlideWithLayout(lp)}
@@ -2393,6 +2460,8 @@ export function App() {
                 open={showAi}
                 onExpand={toggleAi}
                 onCollapse={toggleAi}
+                onOpenSettings={() => setShowAiSettings(true)}
+                userSkills={userSkills}
                 onUndo={() => void undo()}
                 onPathChange={(p) => {
                   setPath(p)
@@ -2402,7 +2471,7 @@ export function App() {
               />
             ) : (
               <button className="ai-rail" onClick={toggleAi} title={t('appAiRailExpand')}>
-                <GensparkMark size={22} />
+                <BrandMark size={22} />
               </button>
             )}
           </div>
@@ -2650,8 +2719,8 @@ export function App() {
                           title={t('aiOpenAssistant')}
                           onClick={toggleAi}
                         >
-                          <GensparkMark size={14} />
-                          <span>Genspark AI</span>
+                          <BrandMark size={14} />
+                          <span>Hi-office AI</span>
                         </button>
                         {/* Same one-click presets as the Home tab; hidden instead of
                         disabled while the deck has no real content */}
@@ -3128,6 +3197,47 @@ export function App() {
         />
       )}
 
+      {showAiSettings && aiSettings && (
+        <AiSettingsModal
+          settings={aiSettings}
+          t={t as (key: string, params?: Record<string, string | number>) => string}
+          skills={skillMetas}
+          onOpenSkillsDir={() => void window.slidesApi.skillOpenDir()}
+          onCreateSkill={async (input) => {
+            const res = await window.slidesApi.skillCreate(input as CreateSkillInput)
+            if (res.ok) setSkillMetas(await window.slidesApi.skillList())
+            return res.ok ? { ok: true, dir: res.dir } : { ok: false, error: res.error }
+          }}
+          onReadSkillBody={async (dir) => (await window.slidesApi.skillRead(dir))?.md ?? null}
+          templates={templates}
+          onExtractTemplate={async (name) => {
+            return { ok: false, error: 'use the design tab theme gallery to save a preset' }
+          }}
+          onApplyTemplate={async (id) => {
+            const rec = await window.slidesApi.templateGet(id)
+            if (!rec) return { ok: false, error: 'template not found' }
+            const p = rec.payload as { colors?: Record<string, string>; majorFont?: string; minorFont?: string }
+            if (!p.colors) return { ok: false, error: 'invalid theme payload' }
+            applyThemePreset({ id: rec.id, name: rec.name, colors: p.colors, ...(p.majorFont ? { majorFont: p.majorFont } : {}), ...(p.minorFont ? { minorFont: p.minorFont } : {}) })
+            return { ok: true }
+          }}
+          onRenameTemplate={async (id, n) => {
+            const res = await window.slidesApi.templateRename(id, n)
+            if (res.ok) setTemplates(await window.slidesApi.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onDeleteTemplate={async (id) => {
+            const res = await window.slidesApi.templateDelete(id)
+            if (res.ok) setTemplates(await window.slidesApi.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
+          }}
+          onSave={(next) => {
+            setAiSettings(next)
+            void window.slidesApi.setAiSettings(next)
+          }}
+          onClose={() => setShowAiSettings(false)}
+        />
+      )}
       {chartDataDialogOpen && chartDataDialogInit && (
         <ChartDataDialog
           init={chartDataDialogInit}
