@@ -1392,7 +1392,10 @@ function tableCellXml(
   const nested = cell.nestedTables ?? []
   const items = paraXmls.map((xml) => ({ tbl: false, xml }))
   for (let i = nested.length - 1; i >= 0; i--) {
-    const at = Math.min(cell.nestedTableAnchors?.[i] ?? paraXmls.length, paraXmls.length)
+    // nestedTableAnchors is introduced by an upstream commit not yet cherry-picked;
+    // fall back to appending at the end when absent.
+    const anchors = (cell as { nestedTableAnchors?: number[] }).nestedTableAnchors
+    const at = Math.min(anchors?.[i] ?? paraXmls.length, paraXmls.length)
     items.splice(at, 0, { tbl: true, xml: generateTableModelXml(nested[i]) })
   }
   const tail = items.length === 0 || items[items.length - 1].tbl ? '<w:p/>' : ''
