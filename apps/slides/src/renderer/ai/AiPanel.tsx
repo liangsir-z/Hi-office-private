@@ -1257,6 +1257,15 @@ export function AiPanel({
             images.push(shot)
             modelInstruction += `\n\n(Attached image: the current rendering of this slide, slideIndex ${currentRef.current}. Use it to spot visual issues the element inventory can't show.)`
           }
+          // Smaller chat models tend to answer beautify requests with styling
+          // advice instead of acting. Make the contract explicit: this preset
+          // edits the slide through tools, sighted or not.
+          modelInstruction +=
+            '\n\nIMPORTANT: You are expected to ACT, not advise. First inspect the current slide ' +
+            '(the attached image if present, otherwise call read_slide for the element inventory), ' +
+            'then improve its layout, colors, and font hierarchy by calling your editing tools. ' +
+            'Replying with suggestions only is a failure — apply the changes, then summarize ' +
+            'briefly what you changed.'
         }
         // Clear the flag before run: loop.run sets running synchronously, leaving no re-entry window
         runStartingRef.current = false
