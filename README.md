@@ -33,10 +33,10 @@ Every app embeds the same AI panel: block-granular AI editing with version
 snapshots and diffs in docs, a tool-calling agent over workbook/slide/PDF
 state in the others.
 
-**AI providers (BYOK).** Each user brings their own API key — DeepSeek,
-OpenAI, Anthropic, Gemini, or any OpenAI-compatible endpoint — configured in
-the in-app AI settings. Requests go directly from the app to the chosen
-provider; there is no intermediate account or gateway.
+**AI provider (DeepSeek).** Each user enters their own DeepSeek API key in the
+global settings (Home sidebar → Settings). All AI requests go directly from
+the app to the DeepSeek API; no other provider is wired into this build.
+Replies follow the interface language.
 
 ## Engine packages
 

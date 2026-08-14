@@ -21,6 +21,7 @@ import {
   type AiStreamRequest,
   type LegacyAiSettings,
 } from '@genoffice/ai-provider'
+import { aiReplyLanguageDirective, getUiLang } from '@genoffice/i18n'
 import { registerSkillIpc } from '@genoffice/skill-loader/main'
 import { registerTemplateIpc } from '@genoffice/template-store'
 import { fetchRemoteImage } from '@genoffice/electron-utils'
@@ -70,9 +71,11 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
-    const { requestId, settings, system, messages } = request
+    const { requestId, settings, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? 8192
+    // English-heavy prompts/tools would otherwise make the model drift into English
+    const system = request.system + aiReplyLanguageDirective(getUiLang())
     const provider = settings.provider
     const config = settings.providers?.[provider]
     const send = (chunk: AiStreamChunk) => {

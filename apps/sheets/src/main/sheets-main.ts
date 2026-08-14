@@ -46,7 +46,14 @@ import {
   viewMenuTemplate,
   windowMenuTemplate,
 } from '@genoffice/electron-utils'
-import { createI18n, getUiLang, type Lang, normalizeLang, setUiLang } from '@genoffice/i18n'
+import {
+  aiReplyLanguageDirective,
+  createI18n,
+  getUiLang,
+  type Lang,
+  normalizeLang,
+  setUiLang,
+} from '@genoffice/i18n'
 import { ProjectStore } from '@genoffice/project-store'
 
 import {
@@ -2092,6 +2099,7 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiChat, async (event, input: unknown) => {
     sessionFor(event)
     const request = aiChatRequestSchema.parse(input)
+    request.system += aiReplyLanguageDirective(getUiLang())
     const provider = request.settings.provider as AiProviderId
     const config = request.settings.providers[provider]
     if (!config?.apiKey) {
@@ -2108,7 +2116,9 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiStream, async (event, input: unknown) => {
     const entry = sessionFor(event)
     const request = aiStreamRequestSchema.parse(input)
-    const { requestId, system, messages } = request
+    const { requestId, messages } = request
+    // English-heavy prompts/tools would otherwise make the model drift into English
+    const system = request.system + aiReplyLanguageDirective(getUiLang())
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? 8192
     const provider = request.settings.provider as AiProviderId

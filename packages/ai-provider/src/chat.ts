@@ -48,14 +48,6 @@ export async function chatForProvider(
   // so the connect phase gets the long budget; the body read then gets the idle budget
   const wd = createStreamWatchdog(signal, AI_CHAT_RESPONSE_TIMEOUT_MS)
   return wd.guard(() => {
-    if (provider === 'custom') {
-      if (!config.baseUrl)
-        return Promise.resolve({
-          ok: false as const,
-          error: 'A custom provider requires a Base URL',
-        })
-      return chatOpenAiCompatible(wd, config.baseUrl, config, system, user)
-    }
     const baseUrl = PROVIDER_BASE_URLS[provider]
     if (!baseUrl)
       return Promise.resolve({ ok: false as const, error: `Unknown provider: ${provider}` })

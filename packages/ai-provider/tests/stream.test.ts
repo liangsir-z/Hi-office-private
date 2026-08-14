@@ -286,34 +286,6 @@ describe('streamForProvider: openai-compatible', () => {
     )
   })
 
-  it('uses the configured base URL for the custom provider', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(okResponse(sseStream(['data: [DONE]'])))
-    vi.stubGlobal('fetch', fetchMock)
-    const { cb } = collector()
-    await streamForProvider(
-      'custom',
-      { apiKey: 'k', model: 'm', baseUrl: 'https://my-endpoint.example.com/v1' },
-      'sys',
-      [],
-      [],
-      100,
-      cb,
-    ).catch(() => {})
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://my-endpoint.example.com/v1/chat/completions',
-      expect.anything(),
-    )
-  })
-
-  it('rejects the custom provider without a base URL, without ever calling fetch', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    const { cb } = collector()
-    await expect(
-      streamForProvider('custom', { apiKey: 'k', model: 'm' }, 'sys', [], [], 100, cb),
-    ).rejects.toThrow(/Base URL/)
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
 })
 
 
@@ -337,7 +309,7 @@ describe('streamForProvider: 200 + non-stream JSON instead of SSE', () => {
       ),
     )
     const { cb } = collector()
-    const run = streamForProvider('qwen', { apiKey: 'k', model: 'qwen-plus' }, 'sys', [], [], 100, cb)
+    const run = streamForProvider('deepseek', { apiKey: 'k', model: 'deepseek-chat' }, 'sys', [], [], 100, cb)
     await expect(run).rejects.toBeInstanceOf(AiCreditsError)
     await expect(run).rejects.toThrow(/credits have been exhausted/)
   })
@@ -370,7 +342,7 @@ describe('streamForProvider: 200 + non-stream JSON instead of SSE', () => {
       ),
     )
     const { deltas, cb } = collector()
-    await streamForProvider('qwen', { apiKey: 'k', model: 'qwen-plus' }, 'sys', [], [], 100, cb)
+    await streamForProvider('deepseek', { apiKey: 'k', model: 'deepseek-chat' }, 'sys', [], [], 100, cb)
     expect(deltas.join('')).toBe('The service is under maintenance until 06:00 UTC.')
   })
 
@@ -386,7 +358,7 @@ describe('streamForProvider: 200 + non-stream JSON instead of SSE', () => {
     )
     const { cb } = collector()
     await expect(
-      streamForProvider('qwen', { apiKey: 'k', model: 'qwen-plus' }, 'sys', [], [], 100, cb),
+      streamForProvider('deepseek', { apiKey: 'k', model: 'deepseek-chat' }, 'sys', [], [], 100, cb),
     ).rejects.toThrow(/The model returned an unparseable JSON body: not json at all/)
   })
 
@@ -405,7 +377,7 @@ describe('streamForProvider: 200 + non-stream JSON instead of SSE', () => {
     ])
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okResponse(body)))
     const { deltas, cb } = collector()
-    await streamForProvider('qwen', { apiKey: 'k', model: 'qwen-plus' }, 'sys', [], [], 100, cb)
+    await streamForProvider('deepseek', { apiKey: 'k', model: 'deepseek-chat' }, 'sys', [], [], 100, cb)
     expect(deltas.join('')).toBe('ok')
   })
 })

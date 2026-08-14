@@ -50,19 +50,21 @@ export function ModelSettingsPanel({ draft, setDraft, t }: ModelSettingsPanelPro
 
   return (
     <>
-      {/* LLM provider */}
-      <div className="provider-tabs">
-        {AI_PROVIDERS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className={`provider-tab${p.id === provider ? ' provider-tab-active' : ''}`}
-            onClick={() => setProvider(p.id)}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      {/* LLM provider tabs (single-provider deployments show no switcher) */}
+      {AI_PROVIDERS.length > 1 && (
+        <div className="provider-tabs">
+          {AI_PROVIDERS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`provider-tab${p.id === provider ? ' provider-tab-active' : ''}`}
+              onClick={() => setProvider(p.id)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <label>
         {t('settingsApiKey')}
@@ -78,7 +80,7 @@ export function ModelSettingsPanel({ draft, setDraft, t }: ModelSettingsPanelPro
 
       <label>
         {t('settingsModel')}
-        {providerMeta && providerMeta.models.length > 0 && provider !== 'custom' ? (
+        {providerMeta && providerMeta.models.length > 0 ? (
           <select
             value={providerCfg?.model ?? ''}
             onChange={(e) => setProviderCfg({ model: e.target.value })}
@@ -96,7 +98,6 @@ export function ModelSettingsPanel({ draft, setDraft, t }: ModelSettingsPanelPro
           <input
             type="text"
             value={providerCfg?.model ?? ''}
-            placeholder={provider === 'custom' ? 'e.g. qwen-plus / glm-4-flash' : ''}
             onChange={(e) => setProviderCfg({ model: e.target.value })}
             spellCheck={false}
           />

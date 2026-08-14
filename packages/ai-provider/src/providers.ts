@@ -1,192 +1,68 @@
 import type { AiProviderId, AiProviderMeta, AiSettings, LegacyAiSettings } from './types'
 
 /**
- * Domestic (China) provider lineup only. Every fixed provider speaks the
- * OpenAI-compatible chat/completions protocol, so they all ride the same
- * wire implementation; `custom` covers any other OpenAI-compatible endpoint
- * (Ollama, vLLM, OpenRouter, ...).
+ * DeepSeek is the single supported provider in this build: the deployment
+ * locks the whole team to one vendor, so the lineup, wire routing, and
+ * migrations are all single-provider. Every other provider id found in an
+ * older settings file migrates into the deepseek slot.
  */
 export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'deepseek',
     label: 'DeepSeek',
+    // deepseek-chat / deepseek-reasoner are text-only: their API rejects the
+    // OpenAI image_url content part with HTTP 400
     vision: false,
     models: ['deepseek-chat', 'deepseek-reasoner'],
     defaultModel: 'deepseek-chat',
     keyPlaceholder: 'sk-...',
   },
-  {
-    id: 'qwen',
-    label: '通义千问(百炼)',
-    // dashscope compatible-mode: only the -vl models accept image parts
-    visionModels: /(^|[-.])vl([-.-]|$)/i,
-    models: [
-      'qwen3-max',
-      'qwen-max',
-      'qwen-plus',
-      'qwen-flash',
-      'qwen-vl-max',
-      'qwen-vl-plus',
-    ],
-    defaultModel: 'qwen-plus',
-    keyPlaceholder: 'sk-...',
-  },
-  {
-    id: 'zhipu',
-    label: '智谱 GLM',
-    visionModels: /glm-[\d.]*v/i,
-    models: ['glm-4.5-flash', 'glm-4v-flash', 'glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4v-plus'],
-    defaultModel: 'glm-4.5-flash',
-    keyPlaceholder: '....',
-  },
-  {
-    id: 'kimi',
-    label: 'Kimi(月之暗面)',
-    visionModels: /vision/i,
-    models: [
-      'kimi-k2-0905-preview',
-      'kimi-latest',
-      'moonshot-v1-8k',
-      'moonshot-v1-32k',
-      'moonshot-v1-8k-vision-preview',
-    ],
-    defaultModel: 'kimi-latest',
-    keyPlaceholder: 'sk-...',
-  },
-  {
-    id: 'minimax',
-    label: 'MiniMax',
-    // M2 takes multimodal messages; keep the gate permissive for newer releases
-    visionModels: /m[2-9]|vl/i,
-    models: ['MiniMax-M2', 'MiniMax-M1'],
-    defaultModel: 'MiniMax-M2',
-    keyPlaceholder: 'eyJ...',
-  },
-  {
-    id: 'siliconflow',
-    label: '硅基流动',
-    visionModels: /vl/i,
-    models: [
-      'Qwen/Qwen3-32B',
-      'deepseek-ai/DeepSeek-V3',
-      'Qwen/Qwen2.5-VL-32B-Instruct',
-      'THUDM/GLM-4-9B-0414',
-    ],
-    defaultModel: 'Qwen/Qwen3-32B',
-    keyPlaceholder: 'sk-...',
-  },
-  {
-    id: 'custom',
-    label: '自定义',
-    vision: true,
-    models: [],
-    defaultModel: '',
-    keyPlaceholder: 'API Key',
-    needsBaseUrl: true,
-  },
 ]
 
-/** Fixed base URLs of the OpenAI-compatible endpoints (custom is user-supplied). */
-export const PROVIDER_BASE_URLS: Record<Exclude<AiProviderId, 'custom'>, string> = {
+/** Fixed base URL of the DeepSeek OpenAI-compatible endpoint. */
+export const PROVIDER_BASE_URLS: Record<'deepseek', string> = {
   deepseek: 'https://api.deepseek.com/v1',
-  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-  kimi: 'https://api.moonshot.cn/v1',
-  minimax: 'https://api.minimaxi.com/v1',
-  siliconflow: 'https://api.siliconflow.cn/v1',
 }
 
 /**
  * Whether a request to `provider` with model `model` may carry inline image
- * attachments. `visionModels` (model-level gate) wins over the provider-level
- * `vision` flag; providers that declare neither default to vision-capable.
+ * attachments. DeepSeek is text-only, so this is always false; the signature
+ * stays (provider, model) so call sites don't churn when the lineup grows.
  */
-export function providerSupportsVision(provider: AiProviderId, model?: string): boolean {
-  const meta = AI_PROVIDERS.find((meta) => meta.id === provider)
-  if (!meta) return false
-  if (meta.visionModels) return !!model && meta.visionModels.test(model)
-  return meta.vision !== false
+export function providerSupportsVision(provider: AiProviderId, _model?: string): boolean {
+  return AI_PROVIDERS.find((meta) => meta.id === provider)?.vision !== false
 }
 
 /**
- * Fresh settings with every provider's default model and an empty key,
- * except providers listed in `defaultApiKeys` (an app-specific
- * preconfigured key). Callers own that policy; this package
- * has no hardcoded keys.
+ * Fresh DeepSeek settings with the default model and an empty key, except a
+ * caller-supplied default key. Callers own that policy; this package has no
+ * hardcoded keys.
  */
-export function defaultAiSettings(
-  defaultApiKeys?: Partial<Record<AiProviderId, string>>,
-): AiSettings {
-  const providers = {} as AiSettings['providers']
-  for (const meta of AI_PROVIDERS) {
-    providers[meta.id] = {
-      apiKey: defaultApiKeys?.[meta.id] ?? '',
-      model: meta.defaultModel,
-      baseUrl: meta.needsBaseUrl ? '' : undefined,
-    }
-  }
-  // [BYOK] default to 'custom' so a fresh install lets the user fill in their own
-  // OpenAI-compatible endpoint (Ollama/vLLM/...) instead of Hi-office.
-  return { provider: 'custom', providers }
+export function defaultAiSettings(defaultApiKey?: string): AiSettings {
+  const providers = { deepseek: { apiKey: defaultApiKey ?? '', model: 'deepseek-chat' } }
+  return { provider: 'deepseek', providers }
 }
-
-/**
- * Migration map for provider ids removed from the lineup: OpenAI is itself
- * OpenAI-compatible, so its key/baseUrl survive in the custom slot; the
- * native Anthropic/Gemini protocols have no compatible replacement here, so
- * those fall back to the DeepSeek slot (the user re-enters a key).
- */
-const REMOVED_PROVIDER_FALLBACK: Record<string, 'custom' | 'deepseek'> = {
-  openai: 'custom',
-  anthropic: 'deepseek',
-  gemini: 'deepseek',
-}
-
-const REMOVED_OPENAI_BASE_URL = 'https://api.openai.com/v1'
 
 /**
  * Merge on-disk settings over freshly computed defaults, migrating older
- * shapes: the pre-provider single-endpoint form into the "custom" slot, and
- * provider ids that no longer exist onto their fallback slot. `stored` is
- * whatever the caller read from its settings file (already JSON-parsed);
- * this function does no file I/O.
+ * shapes onto the single-provider lineup: any other provider id (including
+ * the former custom/qwen/zhipu/kimi/minimax/siliconflow slots) collapses
+ * onto deepseek and its stored keys are dropped. `stored` is whatever the
+ * caller read from its settings file (already JSON-parsed); no file I/O.
  */
 export function resolveAiSettings(
   stored: Partial<AiSettings> & LegacyAiSettings,
   defaults: AiSettings,
 ): AiSettings {
-  if (!stored.providers) {
-    if (stored.apiKey) {
-      defaults.providers.custom = {
-        apiKey: stored.apiKey,
-        model: stored.model ?? '',
-        baseUrl: stored.baseUrl ?? '',
-      }
-    }
-    return defaults
+  if (!stored.providers) return defaults
+  const deepseek = stored.providers.deepseek
+  return {
+    provider: 'deepseek',
+    providers: {
+      deepseek: {
+        apiKey: typeof deepseek?.apiKey === 'string' ? deepseek.apiKey : defaults.providers.deepseek.apiKey,
+        model: typeof deepseek?.model === 'string' && deepseek.model ? deepseek.model : defaults.providers.deepseek.model,
+      },
+    },
   }
-  const providers = { ...defaults.providers, ...stored.providers } as AiSettings['providers'] & {
-    [k: string]: unknown
-  }
-  let provider = (stored.provider ?? defaults.provider) as AiProviderId
-  if (!(AI_PROVIDERS.some((meta) => meta.id === provider))) {
-    const fallback = REMOVED_PROVIDER_FALLBACK[provider]
-    if (fallback === 'custom') {
-      const removed = (stored.providers as Record<string, unknown>).openai as
-        | { apiKey?: string; model?: string }
-        | undefined
-      const custom = providers.custom
-      // keep any hand-configured custom endpoint; only fill the slot when empty
-      if (removed?.apiKey && !custom?.apiKey) {
-        providers.custom = {
-          apiKey: removed.apiKey,
-          model: removed?.model || custom?.model || '',
-          baseUrl: custom?.baseUrl || REMOVED_OPENAI_BASE_URL,
-        }
-      }
-    }
-    for (const removedId of Object.keys(REMOVED_PROVIDER_FALLBACK)) delete providers[removedId]
-    provider = fallback ?? 'deepseek'
-  }
-  return { provider, providers }
 }

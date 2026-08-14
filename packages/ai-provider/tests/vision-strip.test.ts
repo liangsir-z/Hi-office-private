@@ -1,19 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { streamForProvider } from '../src/stream'
 import { providerSupportsVision } from '../src/providers'
-import { sseStream, okResponse } from './test-utils'
+import { okResponse, sseStream } from './test-utils'
 import type { AgentMessage } from '@genoffice/agent-core'
 
-/**
- * Text-only backends (deepseek-chat / deepseek-reasoner) reject the OpenAI
- * image_url content part with HTTP 400 ("unknown variant `image_url`,
- * expected `text`"), so image attachments must be stripped for providers
- * whose models have no vision input.
- */
-
-import type { StreamCallbacks } from '../src/stream'
-
-function collector(): { cb: StreamCallbacks } {
+function collector() {
   return { cb: { onDelta: () => {}, onToolCall: () => {}, signal: new AbortController().signal } }
 }
 
@@ -38,57 +29,21 @@ function openAiDone(): Response {
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('provider vision capability', () => {
-  it('gates deepseek off entirely and qwen by model', () => {
+describe('provider vision capability (deepseek-only build)', () => {
+  it('never takes images regardless of model', () => {
     expect(providerSupportsVision('deepseek')).toBe(false)
     expect(providerSupportsVision('deepseek', 'deepseek-chat')).toBe(false)
-    expect(providerSupportsVision('qwen', 'qwen-vl-max')).toBe(true)
-    expect(providerSupportsVision('qwen', 'qwen-plus')).toBe(false)
-    expect(providerSupportsVision('custom', 'any-model')).toBe(true)
+    expect(providerSupportsVision('deepseek', 'deepseek-reasoner')).toBe(false)
   })
 })
 
-describe('image stripping on the OpenAI-compatible wire format', () => {
-  it('drops image parts for deepseek (text-only backend)', async () => {
+describe('image stripping on the wire', () => {
+  it('drops image parts for deepseek', async () => {
     const fetchMock = vi.fn().mockResolvedValue(openAiDone())
     vi.stubGlobal('fetch', fetchMock)
     await streamForProvider(
       'deepseek',
       { apiKey: 'k', model: 'deepseek-chat' },
-      'sys',
-      messageWithImage(),
-      [],
-      100,
-      collector().cb,
-    )
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    const user = body.messages[1]
-    expect(user.content).toBe('美化这一页幻灯片')
-  })
-
-  it('keeps image parts for vision models (qwen-vl)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(openAiDone())
-    vi.stubGlobal('fetch', fetchMock)
-    await streamForProvider(
-      'qwen',
-      { apiKey: 'k', model: 'qwen-vl-max' },
-      'sys',
-      messageWithImage(),
-      [],
-      100,
-      collector().cb,
-    )
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
-    const parts = body.messages[1].content as Array<{ type: string }>
-    expect(parts.map((p) => p.type)).toEqual(['text', 'image_url'])
-  })
-
-  it('strips images for a text model on a vision-capable provider (qwen-plus)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(openAiDone())
-    vi.stubGlobal('fetch', fetchMock)
-    await streamForProvider(
-      'qwen',
-      { apiKey: 'k', model: 'qwen-plus' },
       'sys',
       messageWithImage(),
       [],

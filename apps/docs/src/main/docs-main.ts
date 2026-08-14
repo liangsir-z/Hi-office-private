@@ -32,7 +32,7 @@ import {
   showSaveDialogWithMemory,
   windowMenuTemplate,
 } from '@genoffice/electron-utils'
-import { createI18n, getUiLang, normalizeLang, setUiLang } from '@genoffice/i18n'
+import { aiReplyLanguageDirective, createI18n, getUiLang, normalizeLang, setUiLang } from '@genoffice/i18n'
 import { ProjectStore } from '@genoffice/project-store'
 import type {
   IpcMainInvokeEvent,
@@ -2467,9 +2467,12 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
-    const { requestId, settings, system, messages } = request
+    const { requestId, settings, messages } = request
     const tools = request.tools ?? []
     const maxTokens = request.maxTokens ?? 8192
+    // prompts and tool outputs are English-heavy; without this the model
+    // drifts into English even for Chinese users
+    const system = request.system + aiReplyLanguageDirective(getUiLang())
     const provider = settings.provider
     const config = settings.providers?.[provider]
     const send = (chunk: AiStreamChunk) => {
@@ -2571,7 +2574,8 @@ export function registerAiIpc(): void {
   )
 
   ipcMain.handle('ai:chat', async (_event, request: AiChatRequest) => {
-    const { settings, system, user } = request
+    const { settings, user } = request
+    const system = request.system + aiReplyLanguageDirective(getUiLang())
     const provider = settings.provider
     const config = settings.providers?.[provider]
     if (!config?.apiKey) {

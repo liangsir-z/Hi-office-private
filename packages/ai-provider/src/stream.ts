@@ -406,19 +406,6 @@ export async function streamForProvider(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
-  if (provider === 'custom') {
-    if (!config.baseUrl) throw new Error('A custom provider requires a Base URL')
-    return streamOpenAiCompatible(
-      config.baseUrl,
-      config,
-      system,
-      messages,
-      tools,
-      maxTokens,
-      cb,
-      providerSupportsVision(provider, config.model),
-    )
-  }
   const baseUrl = PROVIDER_BASE_URLS[provider]
   if (!baseUrl) throw new Error(`Unknown provider: ${provider}`)
   return streamOpenAiCompatible(
@@ -429,7 +416,7 @@ export async function streamForProvider(
     tools,
     maxTokens,
     cb,
-    // text-only models (deepseek, non-vl qwen, ...) reject image_url parts with 400
+    // deepseek-chat/reasoner reject image_url parts with 400
     providerSupportsVision(provider, config.model),
   )
 }

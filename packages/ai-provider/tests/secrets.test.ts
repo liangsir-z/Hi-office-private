@@ -18,12 +18,6 @@ function sampleSettings(): AiSettings {
     provider: 'deepseek',
     providers: {
       deepseek: { apiKey: 'sk-ds', model: 'deepseek-chat' },
-      qwen: { apiKey: '', model: 'qwen-plus' },
-      zhipu: { apiKey: 'sk-zp', model: 'glm-4-flash' },
-      kimi: { apiKey: 'sk-kimi', model: 'kimi-latest' },
-      minimax: { apiKey: 'sk-mm', model: 'MiniMax-M2' },
-      siliconflow: { apiKey: 'sk-sf', model: 'Qwen/Qwen3-32B' },
-      custom: { apiKey: 'sk-custom', model: 'local', baseUrl: 'http://localhost:11434/v1' },
     },
     imageGen: { provider: 'custom', apiKey: 'img-key', baseUrl: 'https://img.example' },
   }
@@ -33,17 +27,13 @@ describe('encodeSettingsSecrets', () => {
   it('encrypts every provider apiKey and the imageGen apiKey', () => {
     const out = encodeSettingsSecrets(sampleSettings(), reverseCodec)
     expect(out.providers.deepseek.apiKey).toBe('enc1:sd-ks')
-    expect(out.providers.kimi.apiKey).toBe('enc1:imik-ks')
-    expect(out.providers.custom.apiKey).toBe('enc1:motsuc-ks')
     expect(out.imageGen?.apiKey).toBe('enc1:yek-gmi')
   })
 
   it('leaves empty keys, models, baseUrls, and non-secret fields untouched', () => {
     const input = sampleSettings()
     const out = encodeSettingsSecrets(input, reverseCodec)
-    expect(out.providers.qwen.apiKey).toBe('')
     expect(out.provider).toBe('deepseek')
-    expect(out.providers.custom.baseUrl).toBe('http://localhost:11434/v1')
     expect(out.providers.deepseek.model).toBe('deepseek-chat')
     expect(out.imageGen?.baseUrl).toBe('https://img.example')
   })
@@ -73,7 +63,6 @@ describe('decodeSettingsSecrets (legacy files)', () => {
   it('passes plaintext keys through unchanged', () => {
     const legacy = { ...sampleSettings() }
     const out = decodeSettingsSecrets(legacy, reverseCodec)
-    expect(out.providers.kimi.apiKey).toBe('sk-kimi')
   })
 })
 

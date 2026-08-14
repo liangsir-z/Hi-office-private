@@ -1,18 +1,11 @@
 import type { AgentMessage, AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
 
-export type AiProviderId =
-  | 'deepseek'
-  | 'qwen'
-  | 'zhipu'
-  | 'kimi'
-  | 'minimax'
-  | 'siliconflow'
-  | 'custom'
+export type AiProviderId = 'deepseek'
 
 export interface AiProviderConfig {
   apiKey: string
   model: string
-  /** only used by the custom (OpenAI-compatible) provider */
+  /** reserved for future multi-provider support */
   baseUrl?: string | undefined
 }
 
@@ -24,19 +17,11 @@ export interface AiProviderMeta {
   keyPlaceholder: string
   needsBaseUrl?: boolean
   /**
-   * Whether the provider's chat endpoint accepts image input at all. When
-   * false, inline image attachments are always stripped (the OpenAI wire
-   * format's image_url part is rejected with HTTP 400 by text-only backends
-   * such as DeepSeek).
+   * Whether the provider's chat endpoint accepts image input. When false,
+   * inline image attachments are always stripped (the OpenAI wire format's
+   * image_url part is rejected with HTTP 400 by DeepSeek's text models).
    */
   vision?: boolean
-  /**
-   * Model-level vision gate for providers that mix text-only and multimodal
-   * models behind one endpoint (qwen: only -vl models take images, zhipu:
-   * glm-4v*, kimi: *vision*…). When set, images are sent only if the
-   * configured model matches; takes precedence over `vision`.
-   */
-  visionModels?: RegExp
 }
 
 export interface AiSettings {

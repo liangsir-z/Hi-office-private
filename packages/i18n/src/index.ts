@@ -88,6 +88,42 @@ export function htmlLang(lang: Lang): string {
   return HTML_LANGS[lang]
 }
 
+/** English display names for every UI language (used inside model-facing prompts). */
+const LANG_NAMES: Record<Lang, string> = {
+  zh: 'Simplified Chinese (简体中文)',
+  en: 'English',
+  ja: 'Japanese',
+  ko: 'Korean',
+  fr: 'French',
+  de: 'German',
+  es: 'Spanish',
+  th: 'Thai',
+  id: 'Indonesian',
+  ru: 'Russian',
+  ar: 'Arabic',
+  pt: 'Portuguese',
+  it: 'Italian',
+  pl: 'Polish',
+  nl: 'Dutch',
+  ms: 'Malay',
+  he: 'Hebrew',
+  hi: 'Hindi',
+  'zh-TW': 'Traditional Chinese (繁體中文)',
+}
+
+/**
+ * Appended to every AI system prompt by the main process: replies must follow
+ * the UI language, NOT the language of the prompt/tools — without this, the
+ * English-heavy prompts and tool outputs make the model drift into English.
+ */
+export function aiReplyLanguageDirective(lang: Lang): string {
+  return (
+    `\n\nLANGUAGE REQUIREMENT: write every user-facing reply in ${LANG_NAMES[lang]}. ` +
+    'This choice follows the app UI language and overrides the language of the prompt, ' +
+    'tool outputs, and system text. Keep code, formulas, file paths, and product names unchanged.'
+  )
+}
+
 export type Params = Record<string, string | number>
 
 /** fill {name} placeholders; unknown placeholders are left as-is */
