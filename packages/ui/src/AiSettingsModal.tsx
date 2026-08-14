@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import {
-  AI_PROVIDERS,
-  type AiProviderId,
-  type AiSettings,
-  type ImageGenConfig,
-  type ImageGenProvider,
-} from '@genoffice/ai-provider'
+import type { AiSettings } from '@genoffice/ai-provider'
 
 /**
  * Translation function injected by the host app (each app owns its own i18n).
@@ -15,12 +9,17 @@ import {
  */
 export type AiSettingsT = (key: string, params?: Record<string, string | number>) => string
 
+/** which app's skills the dialog manages; undefined shows everything */
+export type SkillAppScope = 'docs' | 'sheets' | 'slides'
+
 export interface AiSettingsModalProps {
   settings: AiSettings
   /** commit the draft; the host app persists via its window API and updates state */
   onSave: (next: AiSettings) => void
   onClose: () => void
   t: AiSettingsT
+  /** host app context: filters the skills list to that app's skills (+ 'all') */
+  app?: SkillAppScope
   /** discovered user skills to list in the Skills section (empty/undefined hides it) */
   skills?: SkillListItem[]
   /** open the skills folder in the OS file manager */
@@ -71,25 +70,20 @@ export interface SkillListItem {
   origin?: 'builtin' | 'user'
 }
 
-const IMAGE_GEN_PROVIDERS: Array<{ id: ImageGenProvider | 'none'; label: string }> = [
-  { id: 'none', label: 'None (disabled)' },
-  { id: 'aliyun-wanx', label: 'Aliyun Wanx (通义万相)' },
-  { id: 'volcengine-jimeng', label: 'Volcengine Jimeng (即梦)' },
-  { id: 'custom', label: 'Custom' },
-]
-
 /**
- * AI configuration dialog shared by docs / sheets / slides. Edits an AiSettings
- * draft (LLM provider + image-generation backend) and commits on save. Renders
- * the existing `.modal` / `.provider-tabs` class families; styling lives per app.
- * Self-contained: injects `t` and `onSave` so it stays free of any app's i18n or
- * window-API surface.
+ * AI configuration dialog shared by docs / sheets / slides: skills (per app)
+ * and templates. Model/provider configuration is global and lives in the
+ * shell's settings window (ModelSettingsPanel). Renders the existing
+ * `.modal` / `.settings-nav` class families; styling lives per app.
+ * Self-contained: injects `t` and `onSave` so it stays free of any app's i18n
+ * or window-API surface.
  */
 export function AiSettingsModal({
   settings,
   onSave,
   onClose,
   t,
+  app,
   skills,
   onOpenSkillsDir,
   onCreateSkill,
@@ -102,13 +96,13 @@ export function AiSettingsModal({
 }: AiSettingsModalProps) {
   const backdropRef = useRef<HTMLDivElement>(null)
   const [draft, setDraft] = useState<AiSettings>(() => structuredClone(settings))
-  const [tab, setTab] = useState<'model' | 'skills' | 'templates'>('model')
+  const [tab, setTab] = useState<'skills' | 'templates'>('skills')
   // skills panel: search, detail expand, create wizard
   const [skillQuery, setSkillQuery] = useState('')
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null)
   const [skillBody, setSkillBody] = useState<Record<string, string>>({})
   const [showCreate, setShowCreate] = useState(false)
-  const [createForm, setCreateForm] = useState({ name: '', description: '', app: 'all', body: '' })
+  const [createForm, setCreateForm] = useState({ name: '', description: '', app: app ?? 'all', body: '' })
   const [createError, setCreateError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   // templates panel: extract form + busy/error state
@@ -132,18 +126,6 @@ export function AiSettingsModal({
     onClose()
   }
 
-  const provider = draft.provider
-  const providerMeta = AI_PROVIDERS.find((p) => p.id === provider)
-  const providerCfg = draft.providers[provider]
-  const img = draft.imageGen ?? { provider: 'none' as const, apiKey: '' }
-
-  const setProvider = (id: AiProviderId) => setDraft((d) => ({ ...d, provider: id }))
-
-  const setProviderCfg = (patch: Partial<typeof providerCfg>) =>
-    setDraft((d) => ({ ...d, providers: { ...d.providers, [provider]: { ...d.providers[provider], ...patch } } }))
-
-  const setImageGen = (patch: Partial<ImageGenConfig>) =>
-    setDraft((d) => ({ ...d, imageGen: { ...(d.imageGen ?? { provider: 'none', apiKey: '' }), ...patch } }))
 
   /** toggle one skill's enable flag (absence = enabled; explicit false = disabled) */
   const setSkillEnabled = (dir: string, enabled: boolean) =>
@@ -163,12 +145,13 @@ export function AiSettingsModal({
     }
   }
 
-  /** filtered skill list by the search box (name + description, case-insensitive) */
+  /** filtered skill list: own-app + universal first, then the search box (name + description) */
   const filteredSkills = (() => {
     if (!skills) return []
+    const scoped = app ? skills.filter((s) => s.app === 'all' || s.app === app) : skills
     const q = skillQuery.trim().toLowerCase()
-    if (!q) return skills
-    return skills.filter(
+    if (!q) return scoped
+    return scoped.filter(
       (s) =>
         s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
     )
@@ -190,7 +173,7 @@ export function AiSettingsModal({
       } else {
         // reset form; the host app refreshes the skills list
         setShowCreate(false)
-        setCreateForm({ name: '', description: '', app: 'all', body: '' })
+        setCreateForm({ name: '', description: '', app: app ?? 'all', body: '' })
       }
     } finally {
       setCreating(false)
@@ -233,13 +216,6 @@ export function AiSettingsModal({
           <nav className="settings-nav">
             <button
               type="button"
-              className={`settings-nav-item${tab === 'model' ? ' active' : ''}`}
-              onClick={() => setTab('model')}
-            >
-              {t('appSettingsTabModel')}
-            </button>
-            <button
-              type="button"
               className={`settings-nav-item${tab === 'skills' ? ' active' : ''}`}
               onClick={() => setTab('skills')}
             >
@@ -258,128 +234,7 @@ export function AiSettingsModal({
 
           {/* ── Right panel ── */}
           <div className="settings-panel">
-        {tab === 'model' ? (
-          <>
-            {/* LLM provider */}
-            <div className="provider-tabs">
-              {AI_PROVIDERS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`provider-tab${p.id === provider ? ' provider-tab-active' : ''}`}
-                  onClick={() => setProvider(p.id)}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            <label>
-              {t('appApiKey')}
-              <input
-                type="password"
-                value={providerCfg?.apiKey ?? ''}
-                placeholder={providerMeta?.keyPlaceholder ?? ''}
-                onChange={(e) => setProviderCfg({ apiKey: e.target.value })}
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-
-            <label>
-              {t('appModel')}
-              {providerMeta && providerMeta.models.length > 0 && provider !== 'custom' ? (
-                <select
-                  value={providerCfg?.model ?? ''}
-                  onChange={(e) => setProviderCfg({ model: e.target.value })}
-                >
-                  {providerMeta.models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                  {providerCfg?.model && !providerMeta.models.includes(providerCfg.model) && (
-                    <option value={providerCfg.model}>{providerCfg.model}</option>
-                  )}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={providerCfg?.model ?? ''}
-                  placeholder={provider === 'custom' ? 'e.g. gpt-4o-mini / qwen2.5' : ''}
-                  onChange={(e) => setProviderCfg({ model: e.target.value })}
-                  spellCheck={false}
-                />
-              )}
-            </label>
-
-            {providerMeta?.needsBaseUrl && (
-              <label>
-                {t('appBaseUrl')}
-                <input
-                  type="text"
-                  value={providerCfg?.baseUrl ?? ''}
-                  placeholder="https://api.openai.com/v1"
-                  onChange={(e) => setProviderCfg({ baseUrl: e.target.value })}
-                  spellCheck={false}
-                />
-              </label>
-            )}
-
-            {/* Image generation */}
-            <label>
-              {t('appImageGen')}
-              <select
-                value={img.provider}
-                onChange={(e) => setImageGen({ provider: e.target.value as ImageGenProvider | 'none' })}
-              >
-                {IMAGE_GEN_PROVIDERS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {img.provider !== 'none' && (
-              <>
-                <label>
-                  {t('appApiKey')}
-                  <input
-                    type="password"
-                    value={img.apiKey}
-                    placeholder={t('appImageGenKeyPlaceholder')}
-                    onChange={(e) => setImageGen({ apiKey: e.target.value })}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </label>
-                <label>
-                  {t('appImageGenModel')}
-                  <input
-                    type="text"
-                    value={img.model ?? ''}
-                    placeholder={t('appImageGenModelPlaceholder')}
-                    onChange={(e) => setImageGen({ model: e.target.value })}
-                    spellCheck={false}
-                  />
-                </label>
-                {img.provider === 'custom' && (
-                  <label>
-                    {t('appBaseUrl')}
-                    <input
-                      type="text"
-                      value={img.baseUrl ?? ''}
-                      placeholder="https://your-image-api/v1"
-                      onChange={(e) => setImageGen({ baseUrl: e.target.value })}
-                      spellCheck={false}
-                    />
-                  </label>
-                )}
-              </>
-            )}
-          </>
-        ) : tab === 'skills' ? (
+        {tab === 'skills' ? (
           /* ── Skills tab ── */
           <div className="ai-settings-skills">
             <div className="ai-settings-skills-header">

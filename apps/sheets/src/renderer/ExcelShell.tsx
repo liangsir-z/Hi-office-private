@@ -143,6 +143,8 @@ interface ExcelShellProps {
   readonly onPromptChange: (prompt: string) => void
   /** Send the composer text, or the given instruction when provided */
   readonly onSend: (instruction?: string) => void
+  /** called after the AI settings dialog saves, so skill flags hot-reload */
+  readonly onAiSettingsSaved?: (next: AiSettings) => void
   readonly onStop: () => void
   readonly onNewChat: () => void
   readonly onUndo: () => void
@@ -224,6 +226,7 @@ export function ExcelShell({
   preview,
   selectionFormat,
   sheetHasContent,
+  onAiSettingsSaved,
   aiBusy,
   chat,
   historicChat,
@@ -502,6 +505,7 @@ export function ExcelShell({
       {aiSettingsDraft && (
         <AiSettingsModal
           settings={aiSettingsDraft}
+          app="sheets"
           t={t as (key: string, params?: Record<string, string | number>) => string}
           skills={skillMetas}
           onOpenSkillsDir={() => void window.desktopApi.skillOpenDir()}
@@ -567,6 +571,7 @@ export function ExcelShell({
           onSave={async (next) => {
             await window.desktopApi.setAiSettings(next)
             setAiSettingsDraft(next)
+            onAiSettingsSaved?.(next)
           }}
           onClose={() => setAiSettingsDraft(null)}
         />

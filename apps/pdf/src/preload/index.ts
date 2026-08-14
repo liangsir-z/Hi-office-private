@@ -36,6 +36,7 @@ const api: PdfApi = {
     return () => ipcRenderer.removeListener(PDF_CHANNELS.languageChanged, listener)
   },
   getAiSettings: () => ipcRenderer.invoke(AI_CHANNELS.getSettings),
+  openAiSettings: () => ipcRenderer.invoke('ai:open-settings'),
   aiStream: (request) => ipcRenderer.invoke(AI_CHANNELS.stream, request),
   aiStreamCancel: (requestId) => ipcRenderer.invoke(AI_CHANNELS.streamCancel, requestId),
   onAiStream: (handler) => {

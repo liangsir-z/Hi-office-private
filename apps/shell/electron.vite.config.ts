@@ -14,6 +14,8 @@ export default defineConfig({
           index: resolve(__dirname, 'src/preload/index.ts'),
           // dedicated preload for the auto-update window
           update: resolve(__dirname, 'src/preload/update.ts'),
+          // dedicated preload for the global settings window
+          settings: resolve(__dirname, 'src/preload/settings.ts'),
         },
       },
     },
@@ -26,6 +28,8 @@ export default defineConfig({
           index: resolve(__dirname, 'src/renderer/index.html'),
           // strong-guidance update window (see src/main/update-window.ts)
           update: resolve(__dirname, 'src/renderer/update.html'),
+          // global settings window (see src/main/settings-window.ts)
+          settings: resolve(__dirname, 'src/renderer/settings.html'),
         },
       },
     },

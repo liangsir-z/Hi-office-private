@@ -288,6 +288,13 @@ export function AiPanel({
               <IconNewChat />
             </button>
           )}
+          <button
+            className="ai-header-btn"
+            onClick={() => void window.pdfApi.openAiSettings()}
+            title={t('aiOpenSettings')}
+          >
+            <IconGear />
+          </button>
           <button className="ai-header-btn" onClick={onCollapse} title={t('aiCollapsePanel')}>
             <IconCollapse />
           </button>
@@ -512,6 +519,18 @@ function Svg({ children }: { children: React.ReactNode }): ReactElement {
     >
       {children}
     </svg>
+  )
+}
+
+function IconGear(): ReactElement {
+  return (
+    <Svg>
+      <circle cx="8" cy="8" r="2.1" />
+      <path
+        d="M8 1.9v1.4M8 12.7v1.4M1.9 8h1.4M12.7 8h1.4M3.7 3.7l1 1M11.3 11.3l1 1M12.3 3.7l-1 1M4.7 11.3l-1 1"
+        strokeLinecap="round"
+      />
+    </Svg>
   )
 }
 

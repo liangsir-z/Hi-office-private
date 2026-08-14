@@ -2443,7 +2443,7 @@ export function registerAiIpc(): void {
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
     const settings = resolveAiSettings(decodeSettingsSecrets(stored, secretCodec), defaultAiSettings())
-    // [BYOK] allow user-chosen provider (custom/openai/anthropic/gemini/deepseek).
+    // [BYOK] allow user-chosen provider (deepseek/qwen/zhipu/kimi/minimax/siliconflow/custom).
     return settings
   })
 

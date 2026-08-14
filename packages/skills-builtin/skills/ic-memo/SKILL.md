@@ -2,7 +2,7 @@
 name: ic-memo
 description: Draft a structured investment committee memo for PE deal approval. Synthesizes due diligence findings, financial analysis, and deal terms into a professional IC-ready document. Triggers on IC memo, investment committee, deal write-up, recommendation memo.
 when_to_use: When preparing for an investment committee, writing up a deal, or creating a formal recommendation document.
-app: slides
+app: docs
 license: Apache-2.0 (adapted from anthropics/financial-services)
 ---
 

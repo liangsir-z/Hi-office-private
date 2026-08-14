@@ -3847,7 +3847,7 @@ export function startSlidesStandalone(): void {
     app.setPath('userData', process.env.GENOFFICE_USER_DATA)
   }
   // The main process's Node fetch (undici) does not use the system proxy by default, so access
-  // from mainland China to overseas LLM APIs like api.anthropic.com hits ETIMEDOUT on direct
+  // from mainland China to overseas LLM APIs can hit ETIMEDOUT on direct
   // connections. Route the global dispatcher through the proxy; the renderer (Chromium) uses
   // the system proxy on its own and is unaffected. Prefer environment variables (terminal
   // launches); packaged builds launched by double-click don't inherit terminal environment

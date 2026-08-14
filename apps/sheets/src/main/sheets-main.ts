@@ -2740,7 +2740,7 @@ export {
  * Attaches a proxy to the main process's global fetch (same source as
  * slides-main.applyMainProcessProxy): main-process Node fetch (undici) ignores
  * the system proxy by default, so direct connections from mainland networks to
- * overseas LLM endpoints like api.anthropic.com time out or get rejected by
+ * overseas LLM endpoints time out or get rejected by
  * egress region (403 Request not allowed). Environment variables take priority;
  * BYOK providers go direct to their own endpoints, so without an env proxy we
  * leave the dispatcher untouched.

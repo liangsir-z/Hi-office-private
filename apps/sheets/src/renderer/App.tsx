@@ -1054,26 +1054,31 @@ export function App(): React.JSX.Element {
     }
   }
 
+  /** [skills] (re)load user-supplied skills filtered by enable flags; called on
+   *  mount and after the settings dialog saves new flags (loopNonce rebuild) */
+  const reloadSkills = useCallback(async (s: AiSettings) => {
+    const sheetsApi: SkillApi = { desktopApi: window.desktopApi as unknown as Record<string, (...a: unknown[]) => unknown> }
+    const skills = await loadUserSkills({
+      app: 'sheets',
+      api: sheetsApi,
+      bridge: {
+        listSkills: () => window.desktopApi.skillList(),
+        readSkill: (dir) => window.desktopApi.skillRead(dir),
+      },
+      isEnabled: (dir) => s.skills?.[dir] !== false,
+    })
+    if (skills.length) {
+      setUserSkills(skills)
+      setLoopNonce((n) => n + 1) // triggers loop rebuild on next render
+    }
+  }, [])
+
   useEffect(() => {
     void window.desktopApi.getAiSettings().then(async (s) => {
       setAiSettingsState(s)
-      // [skills] load user-supplied skills, filtered by per-skill enable flags
-      const sheetsApi: SkillApi = { desktopApi: window.desktopApi as unknown as Record<string, (...a: unknown[]) => unknown> }
-      const skills = await loadUserSkills({
-        app: 'sheets',
-        api: sheetsApi,
-        bridge: {
-          listSkills: () => window.desktopApi.skillList(),
-          readSkill: (dir) => window.desktopApi.skillRead(dir),
-        },
-        isEnabled: (dir) => s.skills?.[dir] !== false,
-      })
-      if (skills.length) {
-        setUserSkills(skills)
-        setLoopNonce((n) => n + 1) // triggers loop rebuild on next render
-      }
+      await reloadSkills(s)
     })
-  }, [])
+  }, [reloadSkills])
 
   useEffect(() => {
     const runtime = createUniver({
@@ -3021,6 +3026,7 @@ export function App(): React.JSX.Element {
         prompt={prompt}
         preview={preview}
         sheetHasContent={sheetHasContent}
+        onAiSettingsSaved={(next) => void reloadSkills(next)}
         pageLayout={activePageLayout}
         selectionFormat={selectionFormat}
         statusMessage={message}

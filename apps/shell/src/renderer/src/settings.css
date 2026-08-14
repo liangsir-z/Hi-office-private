@@ -1,0 +1,142 @@
+/* Global settings window (renderer/settings.html) */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f5f6f8;
+  color: #1f2329;
+  font-size: 14px;
+}
+
+.settings-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+}
+
+.settings-page h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.settings-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
+}
+
+.settings-card h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.settings-card label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #4e5561;
+}
+
+.settings-card input,
+.settings-card select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid #d4d8de;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+}
+
+.settings-card input:focus,
+.settings-card select:focus {
+  outline: none;
+  border-color: #3370ff;
+  box-shadow: 0 0 0 2px rgb(51 112 255 / 15%);
+}
+
+.provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.provider-tab {
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid #d4d8de;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  color: inherit;
+}
+
+.provider-tab:hover {
+  border-color: #3370ff;
+  color: #3370ff;
+}
+
+.provider-tab-active {
+  background: #3370ff;
+  border-color: #3370ff;
+  color: #fff;
+}
+
+.settings-save-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.settings-save {
+  padding: 7px 22px;
+  font-size: 13px;
+  color: #fff;
+  background: #3370ff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.settings-save:disabled {
+  background: #b8c4d9;
+  cursor: default;
+}
+
+.settings-saved {
+  color: #2ea467;
+  font-size: 13px;
+}
+
+.settings-secondary {
+  padding: 7px 14px;
+  font-size: 13px;
+  border: 1px solid #d4d8de;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  color: inherit;
+}
+
+.settings-secondary:hover {
+  border-color: #3370ff;
+  color: #3370ff;
+}
+
+.settings-muted {
+  color: #8a919d;
+  margin: 0;
+}

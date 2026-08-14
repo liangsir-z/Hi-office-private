@@ -102,6 +102,9 @@ const homeApi: HomeApi = {
   async openTrash() {
     await ipcRenderer.invoke(HOME_CHANNELS.openTrash)
   },
+  async openSettings() {
+    await ipcRenderer.invoke('ai:open-settings')
+  },
   async getLanguage() {
     const result: unknown = await ipcRenderer.invoke(HOME_CHANNELS.getLanguage)
     return isUiLanguage(result) ? result : 'zh'

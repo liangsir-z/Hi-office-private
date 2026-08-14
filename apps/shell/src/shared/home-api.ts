@@ -85,6 +85,8 @@ export interface HomeApi {
   deleteFiles(paths: string[]): Promise<void>
   /** open the OS trash, where deleted files can be restored */
   openTrash(): Promise<void>
+  /** open the global settings window (AI model config / language) */
+  openSettings(): Promise<void>
   /** current UI language (persisted in userData/app-settings.json) */
   getLanguage(): Promise<UiLanguage>
   /** switch + persist the UI language; main rebuilds its menus to match */

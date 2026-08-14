@@ -824,29 +824,34 @@ export function App() {
   // File renamed externally (shell Home list rename) → sync the title-bar path (content unchanged, dirty untouched)
   useEffect(() => window.slidesApi.onRenamed((p) => setPath(p)), [])
 
+  /** [skills] (re)load user-supplied skills filtered by enable flags; called on
+   *  mount and after the settings dialog saves new flags (AiPanel remount) */
+  const reloadSkills = useCallback(async (s: AiSettings) => {
+    const slidesApi: SkillApi = { slidesApi: window.slidesApi as unknown as Record<string, (...a: unknown[]) => unknown> }
+    const metas = await window.slidesApi.skillList()
+    setSkillMetas(metas)
+    const skills = await loadUserSkills({
+      app: 'slides',
+      api: slidesApi,
+      bridge: {
+        listSkills: () => Promise.resolve(metas),
+        readSkill: (dir) => window.slidesApi.skillRead(dir),
+      },
+      isEnabled: (dir) => s.skills?.[dir] !== false,
+    })
+    if (skills.length) {
+      setUserSkills(skills)
+      setAiPanelKey((k) => k + 1)
+    }
+  }, [])
+
   useEffect(() => {
     void window.slidesApi.getAiSettings().then(async (s) => {
       setAiSettings(s)
       void window.slidesApi.templateList().then(setTemplates)
-      // [skills] load user-supplied skills, filtered by per-skill enable flags
-      const slidesApi: SkillApi = { slidesApi: window.slidesApi as unknown as Record<string, (...a: unknown[]) => unknown> }
-      const metas = await window.slidesApi.skillList()
-      setSkillMetas(metas)
-      const skills = await loadUserSkills({
-        app: 'slides',
-        api: slidesApi,
-        bridge: {
-          listSkills: () => Promise.resolve(metas),
-          readSkill: (dir) => window.slidesApi.skillRead(dir),
-        },
-        isEnabled: (dir) => s.skills?.[dir] !== false,
-      })
-      if (skills.length) {
-        setUserSkills(skills)
-        setAiPanelKey((k) => k + 1)
-      }
+      await reloadSkills(s)
     })
-  }, [])
+  }, [reloadSkills])
 
   // [templates] pre-resolve template payloads so the design gallery can render swatches
   useEffect(() => {
@@ -3200,6 +3205,7 @@ export function App() {
       {showAiSettings && aiSettings && (
         <AiSettingsModal
           settings={aiSettings}
+          app="slides"
           t={t as (key: string, params?: Record<string, string | number>) => string}
           skills={skillMetas}
           onOpenSkillsDir={() => void window.slidesApi.skillOpenDir()}
@@ -3234,6 +3240,8 @@ export function App() {
           onSave={(next) => {
             setAiSettings(next)
             void window.slidesApi.setAiSettings(next)
+            // hot-reload skills so toggled flags take effect without a restart
+            void reloadSkills(next)
           }}
           onClose={() => setShowAiSettings(false)}
         />

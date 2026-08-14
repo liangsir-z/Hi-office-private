@@ -43,6 +43,7 @@ import {
   windowMenuTemplate,
 } from '@genoffice/electron-utils'
 import { readAppSettings, writeAppSetting } from './app-settings'
+import { showSettingsWindow } from './settings-window'
 import { ProjectStore } from '@genoffice/project-store'
 
 import {
@@ -1435,6 +1436,10 @@ function registerHomeIpc(): void {
   })
 
   ipcMain.handle(HOME_CHANNELS.getLanguage, (): Lang => currentLang())
+
+  // opened from the home sidebar, the pdf panel, and the editors' dialogs —
+  // the settings window is app-global, owned by the shell
+  ipcMain.handle('ai:open-settings', () => showSettingsWindow(shellWindow))
 
   ipcMain.handle(HOME_CHANNELS.setLanguage, (_event, lang: unknown) => {
     if (!isLang(lang) || lang === currentLang()) return
