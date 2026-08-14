@@ -61,9 +61,25 @@ describe('parsePagePlan', () => {
     }
   })
 
+  it('parses items and sectionNumber for the structural variants', () => {
+    const r = parsePagePlan({
+      variant: 'table_of_contents',
+      title: '目录',
+      items: [{ label: '背景介绍' }, { label: '方案详情', sub: '含部署架构' }, {}, { label: 'x' }, { label: 'y' }, { label: 'z' }, { label: 'w' }],
+    })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.plan.items).toHaveLength(6) // capped, empty dropped
+    const d = parsePagePlan({ variant: 'section_divider', title: 't', sectionNumber: '02' })
+    expect(d.ok).toBe(true)
+    if (d.ok) expect(d.plan.sectionNumber).toBe('02')
+  })
+
   it('lists the variant catalog the renderer actually implements', () => {
     expect(PAGE_PLAN_VARIANTS).toContain('cover_typography_hero')
     expect(PAGE_PLAN_VARIANTS).toContain('kpi_cards_row')
-    expect(PAGE_PLAN_VARIANTS).toHaveLength(7)
+    expect(PAGE_PLAN_VARIANTS).toContain('table_of_contents')
+    expect(PAGE_PLAN_VARIANTS).toContain('section_divider')
+    expect(PAGE_PLAN_VARIANTS).toContain('closing_thank_you')
+    expect(PAGE_PLAN_VARIANTS).toHaveLength(10)
   })
 })

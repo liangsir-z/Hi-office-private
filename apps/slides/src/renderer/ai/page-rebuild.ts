@@ -17,6 +17,9 @@ export const PAGE_PLAN_VARIANTS = [
   'two_column_comparison',
   'left_text_right_image',
   'kpi_cards_row',
+  'table_of_contents',
+  'section_divider',
+  'closing_thank_you',
 ] as const
 
 export type PagePlanVariant = (typeof PAGE_PLAN_VARIANTS)[number]
@@ -41,6 +44,10 @@ export interface PagePlan {
   bullets?: string[]
   /** kpi_cards_row */
   kpis?: Array<{ value: string; label: string }>
+  /** table_of_contents: numbered entries */
+  items?: Array<{ label: string; sub?: string }>
+  /** section_divider: the big section number (e.g. "02") */
+  sectionNumber?: string
   /** http(s) image URL for left_text_right_image / cover_split_color */
   imageUrl?: string
 }
@@ -88,6 +95,14 @@ export function parsePagePlan(raw: unknown): { ok: true; plan: PagePlan } | { ok
   if (Array.isArray(p.bullets)) {
     plan.bullets = p.bullets.map((b) => str(b, 240)).filter(Boolean).slice(0, 7)
   }
+  if (Array.isArray(p.items)) {
+    plan.items = p.items
+      .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+      .map((c) => ({ label: str(c.label, 160), sub: str(c.sub, 200) || undefined }))
+      .filter((c) => c.label)
+      .slice(0, 6)
+  }
+  plan.sectionNumber = str(p.sectionNumber, 12) || undefined
   if (Array.isArray(p.kpis)) {
     plan.kpis = p.kpis
       .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
@@ -109,6 +124,15 @@ interface Paragraph {
 }
 
 const PT_TO_PX = 96 / 72
+
+/** Mix a hex color toward white (ratio 0..1) — light tints for decorative shapes. */
+function tint(hex: string, ratio: number): string {
+  const n = parseInt(hex.slice(1), 16)
+  const r = Math.round(((n >> 16) & 0xff) + (255 - ((n >> 16) & 0xff)) * ratio)
+  const g = Math.round(((n >> 8) & 0xff) + (255 - ((n >> 8) & 0xff)) * ratio)
+  const b = Math.round((n & 0xff) + (255 - (n & 0xff)) * ratio)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}
 
 /** Rebuild slide `idx` from `plan` using native add/delete element ops. */
 export async function renderPagePlan(access: DeckAccess, idx: number, plan: PagePlan): Promise<{ ok: boolean; error?: string }> {
@@ -216,6 +240,20 @@ export async function renderPagePlan(access: DeckAccess, idx: number, plan: Page
           fitWidthPx: access.fitWidthPx,
         })
         if (r) access.applySlide(idx, r.slide)
+      } else {
+        // No usable image — fill the right side with a deterministic decorative
+        // composition instead of leaving it blank
+        const rx = W * 0.58
+        await add('rect', rx, 0, W - rx, H, { fill: tint(plan.accent, 0.88) })
+        await add('ellipse', rx + (W - rx) * 0.12, H * 0.16, (W - rx) * 0.62, (W - rx) * 0.62, {
+          fill: tint(plan.accent, 0.72),
+        })
+        await add('ellipse', rx + (W - rx) * 0.38, H * 0.5, (W - rx) * 0.66, (W - rx) * 0.66, {
+          fill: plan.accent,
+        })
+        await add('ellipse', rx + (W - rx) * 0.2, H * 0.62, (W - rx) * 0.2, (W - rx) * 0.2, {
+          fill: tint(plan.accent, 0.45),
+        })
       }
       if (plan.footer) {
         await add('textbox', M, H - M - 16 * PT_TO_PX, W * 0.58 - 2 * M, 16 * PT_TO_PX, {
@@ -336,6 +374,70 @@ export async function renderPagePlan(access: DeckAccess, idx: number, plan: Page
       } else {
         await add('rect', W * 0.52, H * 0.22, W - W * 0.52 - M, H * 0.66, { fill: plan.cardColor })
         await add('rect', W * 0.52, H * 0.22, W - W * 0.52 - M, 6, { fill: plan.accent })
+      }
+      break
+    }
+    case 'table_of_contents': {
+      const items = plan.items ?? []
+      await add('textbox', M, 44, W - 2 * M, 32 * PT_TO_PX, {
+        paragraphs: text([[plan.title || '目录', 28, true]]),
+      })
+      await add('rect', M, 44 + 32 * PT_TO_PX + 10, 64, 6, { fill: plan.accent })
+      const n = Math.max(1, items.length)
+      const listY = H * 0.26
+      const listH = H * 0.66
+      const gapY = 20
+      const rowH = Math.min(110, (listH - gapY * (n - 1)) / n)
+      for (let i = 0; i < n; i++) {
+        const y = listY + i * (rowH + gapY)
+        const item = items[i]
+        await add('roundRect', M, y, W - 2 * M, rowH, { fill: plan.cardColor })
+        await add('roundRect', M + 18, y + rowH / 2 - 26, 52, 52, { fill: plan.accent })
+        await add('textbox', M + 18, y + rowH / 2 - 16, 52, 24 * PT_TO_PX, {
+          paragraphs: text([[String(i + 1), 20, true, '#FFFFFF']], 'center'),
+        })
+        await add('textbox', M + 92, y + rowH / 2 - 15, W - 2 * M - 120, 22 * PT_TO_PX, {
+          paragraphs: text([[item?.label ?? '', 18, true]]),
+        })
+        if (item?.sub) {
+          await add('textbox', M + 92, y + rowH / 2 + 12, W - 2 * M - 120, 16 * PT_TO_PX, {
+            paragraphs: text([[item.sub, 12, false]]),
+          })
+        }
+      }
+      break
+    }
+    case 'section_divider': {
+      await add('rect', 0, 0, W, H, { fill: plan.background })
+      await add('textbox', M, H * 0.16, W * 0.5, 110 * PT_TO_PX, {
+        paragraphs: text([[plan.sectionNumber ?? '01', 96, true, tint(plan.accent, 0.35)]]),
+      })
+      await add('rect', M, H * 0.55, 110, 10, { fill: plan.accent })
+      await add('textbox', M, H * 0.6, W - 2 * M, 40 * PT_TO_PX * 2, {
+        paragraphs: text([[plan.title, 36, true]]),
+      })
+      if (plan.subtitle) {
+        await add('textbox', M, H * 0.74, W - 2 * M, 22 * PT_TO_PX, {
+          paragraphs: text([[plan.subtitle, 16, false]]),
+        })
+      }
+      break
+    }
+    case 'closing_thank_you': {
+      const cx = (W - 360) / 2
+      await add('rect', cx, H * 0.3, 360, 8, { fill: plan.accent })
+      await add('textbox', M, H * 0.38, W - 2 * M, 52 * PT_TO_PX, {
+        paragraphs: text([[plan.title || '谢谢观看', 44, true]], 'center'),
+      })
+      if (plan.subtitle) {
+        await add('textbox', M, H * 0.56, W - 2 * M, 24 * PT_TO_PX, {
+          paragraphs: text([[plan.subtitle, 18, false]], 'center'),
+        })
+      }
+      if (plan.footer) {
+        await add('textbox', M, H - M - 16 * PT_TO_PX, W - 2 * M, 16 * PT_TO_PX, {
+          paragraphs: text([[plan.footer, 12, false]], 'center'),
+        })
       }
       break
     }
