@@ -4,7 +4,7 @@
  * to avoid renderer CORS), search tools, and the slides-only ai:* channels
  * (image generation, media analysis, style templates).
  */
-import { app, ipcMain, safeStorage, shell, webContents } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, shell, webContents } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -26,12 +26,88 @@ import { registerSkillIpc } from '@genoffice/skill-loader/main'
 import { registerTemplateIpc } from '@genoffice/template-store'
 import { fetchRemoteImage } from '@genoffice/electron-utils'
 import { webSearch, imageSearch } from '@genoffice/ai-search'
-import { addPicture } from '@genoffice/pptx-engine'
+import { addElement, addPicture, deleteElement } from '@genoffice/pptx-engine'
 import { EMU_PER_PX_96 } from '@genoffice/pptx-render'
 import { tm } from './i18n-main'
 import { pushHistory, rebuildSlide, sessions } from './session-state'
 
 // ---- AI settings + streaming proxy (the main process does the networking to avoid renderer CORS; implementation shared via @genoffice/ai-provider) ----
+
+/**
+ * DOM walker executed inside the hidden conversion window (see
+ * 'slides:html-to-native'). Extracts the page as flat draw-order elements:
+ * solid-fill shapes (rect/roundRect/ellipse by border radius), text blocks
+ * (own text only, with computed font size/weight/color/align), and images.
+ * Gradients/shadows/transforms are deliberately ignored — the HTML contract
+ * forbids them.
+ */
+const HTML_DOM_WALKER = `(() => {
+  const page = document.querySelector('.slide') || document.body
+  const hex = (c) => {
+    const m = /^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,\\s]+([\\d.]+))?\\)$/.exec((c || '').trim())
+    if (!m) return null
+    if (m[4] !== undefined && parseFloat(m[4]) < 0.06) return null
+    return '#' + [1, 2, 3].map((i) => Math.max(0, Math.min(255, +m[i])).toString(16).padStart(2, '0')).join('')
+  }
+  const out = { background: hex(getComputedStyle(page).backgroundColor), elements: [] }
+  const round = (r) => ({ x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 })
+  const walk = (parent) => {
+    for (const child of parent.children) {
+      const cs = getComputedStyle(child)
+      if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.05) continue
+      const r = child.getBoundingClientRect()
+      if (r.width < 6 || r.height < 6 || r.x > 1280 || r.y > 720 || r.x + r.width < 0 || r.y + r.height < 0) continue
+      if (child.tagName === 'IMG' && child.src && /^https?:/.test(child.src)) {
+        out.elements.push({ kind: 'image', ...round(r), src: child.src, naturalWidth: child.naturalWidth || 0, naturalHeight: child.naturalHeight || 0 })
+        continue
+      }
+      const bg = hex(cs.backgroundColor)
+      const ownText = Array.from(child.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').replace(/\\s+/g, ' ').trim()
+      if (ownText) {
+        if (bg) out.elements.push({ kind: shapeKind(cs, r), ...round(r), fill: bg })
+        const pt = Math.round((parseFloat(cs.fontSize) * 72 / 96) * 10) / 10
+        out.elements.push({
+          kind: 'text', ...round(r), text: ownText.slice(0, 1200), pt,
+          bold: parseInt(cs.fontWeight, 10) >= 600,
+          color: hex(cs.color) || '#000000',
+          align: cs.textAlign === 'center' ? 'center' : (cs.textAlign === 'right' || cs.textAlign === 'end') ? 'right' : 'left',
+        })
+        walk(child)
+        continue
+      }
+      if (bg) out.elements.push({ kind: shapeKind(cs, r), ...round(r), fill: bg })
+      walk(child)
+    }
+  }
+  const shapeKind = (cs, r) => {
+    const radius = parseFloat(cs.borderTopLeftRadius) || 0
+    if (radius >= Math.min(r.width, r.height) * 0.45) return 'ellipse'
+    return radius > 6 ? 'roundRect' : 'rect'
+  }
+  walk(page)
+  if (out.elements.length > 160) out.elements = out.elements.slice(0, 160)
+  return out
+})()`
+
+interface HtmlWalkResult {
+  background: string | null
+  elements: Array<{
+    kind: 'rect' | 'roundRect' | 'ellipse' | 'text' | 'image'
+    x: number
+    y: number
+    w: number
+    h: number
+    fill?: string
+    text?: string
+    pt?: number
+    bold?: boolean
+    color?: string
+    align?: 'left' | 'center' | 'right'
+    src?: string
+    naturalWidth?: number
+    naturalHeight?: number
+  }>
+}
 
 const AI_SETTINGS_PATH = () => join(app.getPath('userData'), 'ai-settings.json')
 
@@ -208,6 +284,137 @@ export function registerSlidesOnlyAiIpc(): void {
   // [BYOK] Media analysis / transcription is retired (was Hi-office-only, low usage).
   // Returns a disabled notice so the AI agent stops attempting the tool.
   ipcMain.handle('ai:analyze-media', async () => ({ error: tm('errMediaDisabled') }))
+
+  // ── Local HTML→native page rebuild ─────────────────────────────────────────
+  // The original regeneration pipeline converted the model's page HTML in the
+  // (removed) cloud service. This restores that route locally: render the HTML
+  // in a locked-down hidden window, walk the DOM, and rebuild the slide with
+  // native elements — free-form design without any network dependency beyond
+  // the images the page itself references.
+  ipcMain.handle(
+    'slides:html-to-native',
+    async (
+      e,
+      op: { slideIndex: number; html: string },
+    ): Promise<{ slide: unknown } | { error: string }> => {
+      const session = sessions.get(e.sender.id)
+      if (!session) return { error: 'no open presentation session' }
+      const slide = session.opened.deck.slides[op.slideIndex]
+      if (!slide) return { error: `slideIndex ${op.slideIndex} out of range` }
+      const html = String(op.html ?? '')
+      if (html.length < 40 || html.length > 60_000) return { error: 'html length out of bounds' }
+
+      const win = new BrowserWindow({
+        show: false,
+        width: 1280,
+        height: 720,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+      })
+      try {
+        await win.loadURL('data:text/html;base64,' + Buffer.from(html, 'utf8').toString('base64'))
+        await win.webContents.executeJavaScript(
+          'Promise.all([document.fonts.ready, ...Array.from(document.images).map((i) => i.decode().catch(() => {}))])',
+          true,
+        )
+        const parsed = (await win.webContents.executeJavaScript(HTML_DOM_WALKER, true)) as
+          | HtmlWalkResult
+          | null
+        if (!parsed || !Array.isArray(parsed.elements)) return { error: 'DOM walk failed' }
+
+        const deckW = session.opened.deck.size.cx
+        const deckH = session.opened.deck.size.cy
+        const toEmu = (px: number, total: number, domTotal: number) =>
+          Math.round((px / domTotal) * total)
+        const clamp = (v: number, max: number) => Math.max(0, Math.min(v, max))
+
+        pushHistory(session)
+        // clear the page (keep layout decorations) — one history step for the whole rebuild
+        for (const el of [...slide.elements]) {
+          if (!(el as { decoration?: boolean }).decoration) deleteElement(slide, el.id)
+        }
+        const emit = async (
+          kind: string,
+          r: { x: number; y: number; w: number; h: number },
+          opts: { fill?: string; paragraphs?: unknown[] } = {},
+        ) => {
+          addElement(slide, {
+            kind,
+            offset: {
+              x: toEmu(clamp(r.x, 1280), deckW, 1280),
+              y: toEmu(clamp(r.y, 720), deckH, 720),
+              cx: Math.max(1, toEmu(Math.min(r.w, 1280 - r.x), deckW, 1280)),
+              cy: Math.max(1, toEmu(Math.min(r.h, 720 - r.y), deckH, 720)),
+            },
+            ...(opts.fill ? { fillColor: opts.fill } : {}),
+            ...(opts.paragraphs ? { paragraphs: opts.paragraphs as never } : {}),
+          })
+        }
+        if (parsed.background) await emit('rect', { x: 0, y: 0, w: 1280, h: 720 }, { fill: parsed.background })
+        let imageFailures = 0
+        for (const el of parsed.elements) {
+          if (el.kind === 'image') {
+            try {
+              const resp = await fetchRemoteImage(el.src ?? '')
+              if (!resp || !resp.ok) throw new Error('fetch failed')
+              const buf = Buffer.from(await resp.arrayBuffer())
+              const ct = resp.headers.get('content-type') ?? ''
+              const ext = ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' : 'jpg'
+              // contain-fit the natural aspect inside the DOM rect
+              const nw = el.naturalWidth || 1
+              const nh = el.naturalHeight || 1
+              const s = Math.min(el.w / nw, el.h / nh)
+              const w = nw * s
+              const h = nh * s
+              addPicture(session.opened, slide, {
+                bytes: new Uint8Array(buf),
+                ext,
+                offset: {
+                  x: toEmu(clamp(el.x + (el.w - w) / 2, 1280), deckW, 1280),
+                  y: toEmu(clamp(el.y + (el.h - h) / 2, 720), deckH, 720),
+                  cx: Math.max(1, toEmu(w, deckW, 1280)),
+                  cy: Math.max(1, toEmu(h, deckH, 720)),
+                },
+              })
+            } catch {
+              imageFailures++
+            }
+          } else if (el.kind === 'text') {
+            await emit('textbox', el, {
+              paragraphs: [
+                {
+                  runs: [
+                    {
+                      text: el.text,
+                      ...(el.pt ? { fontSize: Math.max(8, Math.min(96, el.pt)) } : {}),
+                      ...(el.bold ? { bold: true } : {}),
+                      color: el.color ?? '#000000',
+                    },
+                  ],
+                  ...(el.align && el.align !== 'left' ? { align: el.align } : {}),
+                },
+              ],
+            })
+          } else {
+            await emit(el.kind, el, el.fill ? { fill: el.fill } : {})
+          }
+        }
+        const rebuilt = rebuildSlide(session, op.slideIndex)
+        if (!rebuilt) {
+          session.undoStack.pop()
+          return { error: 'slide rebuild failed' }
+        }
+        return {
+          slide: rebuilt,
+          ...(imageFailures > 0 ? { imageFailures } : {}),
+        } as { slide: unknown }
+      } catch (err) {
+        session.undoStack.pop()
+        return { error: err instanceof Error ? err.message : String(err) }
+      } finally {
+        if (!win.isDestroyed()) win.destroy()
+      }
+    },
+  )
 
   // Download an image from a URL and insert it into the given page (image search -> insert in one step; download in the main process avoids CORS)
   ipcMain.handle(

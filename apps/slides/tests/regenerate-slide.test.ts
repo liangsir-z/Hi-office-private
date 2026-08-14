@@ -82,6 +82,37 @@ describe('regenerate_slide', () => {
     expect(onPagesRebuilt).toHaveBeenCalledWith([1])
   })
 
+  it('rebuilds the page from full-page HTML via the local converter', async () => {
+    const htmlToNative = vi.fn(async () => ({ slide: page, imageFailures: 0 }))
+    ;(window as any).slidesApi = {
+      deleteSlide: vi.fn(async () => [page, page]),
+      deleteElement: vi.fn(async () => page),
+      addElement: vi.fn(async () => ({ slide: page, sourceId: 'e1' })),
+      htmlToNative,
+    }
+    const onPagesRebuilt = vi.fn()
+    const access = mkAccess([page, page], { onPagesRebuilt })
+    const r = await createSlidesSkill(access).executeTool!(
+      call('regenerate_slide', {
+        slideIndex: 0,
+        html: '<div class="slide"><h1>标题</h1></div>'.repeat(3),
+      }),
+    )
+    expect(r.isError).toBeUndefined()
+    expect(r.mutated).toBe(true)
+    expect(htmlToNative).toHaveBeenCalledWith(expect.objectContaining({ slideIndex: 0 }))
+    expect(onPagesRebuilt).toHaveBeenCalledWith([0])
+  })
+
+  it('rejects short/missing html without calling the converter', async () => {
+    const htmlToNative = vi.fn()
+    ;(window as any).slidesApi = { htmlToNative }
+    const r = await createSlidesSkill(mkAccess([page, page])).executeTool!(
+      call('regenerate_slide', { slideIndex: 0, html: 'too short' }),
+    )
+    expect(htmlToNative).not.toHaveBeenCalled()
+  })
+
   it('slideIndex out of range → errors', async () => {
     const skill = createSlidesSkill(mkAccess([page]))
     const r = await skill.executeTool!(

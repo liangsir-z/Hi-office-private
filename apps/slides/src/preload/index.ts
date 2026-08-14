@@ -287,6 +287,8 @@ const api: SlidesApi = {
     hPx: number
     fitWidthPx: number
   }) => ipcRenderer.invoke('ai:insert-image-url', op),
+  htmlToNative: (op: { slideIndex: number; html: string }) =>
+    ipcRenderer.invoke('slides:html-to-native', op),
   generateImage: (op: {
     prompt: string
     model?: string

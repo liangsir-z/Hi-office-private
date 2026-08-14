@@ -1293,7 +1293,8 @@ export function AiPanel({
             '- Color: stay within the deck\'s existing palette; at most one accent color over neutrals; text must clearly contrast with its background (dark-on-light or light-on-dark).\n' +
             '- Spacing/alignment: consistent left margin; ≥ 24px padding inside boxes; nothing within 16px of the canvas edges; no element overlaps.\n' +
             'IMPORTANT: You are expected to ACT, not advise.\n' +
-            'Preferred flow: call **regenerate_slide** with a structured plan (pick the variant that fits this page\'s content, keep the real copy verbatim, reuse the deck palette) — it rebuilds the page with a professional fixed layout. ' +
+            'Preferred flow: call **regenerate_slide** and write the page yourself as HTML (follow the html contract in the tool description: .slide 1280×720, solid fills, real text, clear hierarchy, reuse the deck palette) — it converts to native elements locally. ' +
+            'For standard structures (TOC, KPI rows, comparison) the structured `plan` variants are equally good. ' +
             'Then verify with read_slide and fine-tune with execute_slide_script if needed. ' +
             'Only handle purely local fixes (one element overlapping, a font too small) directly with execute_slide_script. ' +
             'Replying with suggestions only is a failure — apply the changes, then summarize briefly what you changed.'

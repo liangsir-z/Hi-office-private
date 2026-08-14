@@ -633,8 +633,8 @@ const TOOLS: AgentToolDef[] = [
   {
     name: 'regenerate_slide',
     description:
-      '[Redo/redesign an existing page] Rebuilds the page in place from your structured plan with professional fixed layouts (other pages untouched, undoable).' +
-      ' Use when the user says "redo this page / redesign it / try another layout / make it prettier" — and prefer it over hand-nudging many elements when a page needs a real visual upgrade.' +
+      '[Redo/redesign an existing page] Rebuilds the page in place (other pages untouched, undoable). PREFERRED: write a full page as HTML (the `html` arg, per its contract) — free-form professional design, converted locally to native elements.' +
+      ' Alternative: a structured `plan` rendered by fixed layout variants. Use either when the user says "redo this page / redesign it / try another layout / make it prettier" — always prefer this over hand-nudging many elements.' +
       " Flow: read_slide first, then compose the plan — keep the page's real copy/data verbatim in the plan, pick the variant that fits the content, and reuse the deck's palette (accent/background/textColor from the page or deck context)." +
       ' The renderer places everything on a clean grid; verify with read_slide afterwards and fine-tune with execute_slide_script if needed.' +
       ' For left_text_right_image / cover_split_color pass a real http(s) imageUrl (image_search first).',
@@ -642,6 +642,11 @@ const TOOLS: AgentToolDef[] = [
       type: 'object',
       properties: {
         slideIndex: { type: 'integer', description: 'Page to redo (0-based)' },
+        html: {
+          type: 'string',
+          description:
+            'PREFERRED route: full-page HTML you design freely. Contract: one <div class="slide"> exactly 1280×720 px (position:relative, overflow:hidden, solid background); children laid out with flex/absolute inside it; system font stack; SOLID background fills only (no gradients, shadows, transforms, or animations); text as real text (never inside images); images as <img src="http(s)://..."> sized explicitly; keep all content ≥48px from the canvas edges; reuse the deck palette and clear font hierarchy (title ≥28pt≈37px, body ≥14pt≈19px).',
+        },
         plan: {
           type: 'object',
           description:
@@ -2176,9 +2181,28 @@ async function executeTool(
       const idx = Number(call.input.slideIndex)
       if (!slides[idx])
         return fail(t('aiFailRegen'), `slideIndex out of range (0-${slides.length - 1})`)
-      // Local template-based redesign: the model supplies a structured plan
-      // (variant + verbatim content + palette) and the deterministic renderer
-      // rebuilds the page with native elements (replaces the removed cloud service).
+      // Local redesign, two routes (both replace the removed cloud service):
+      // 1. the model writes a full page HTML per the contract — free-form
+      //    design rendered in a hidden window and rebuilt as native elements
+      // 2. a structured plan rendered by the fixed-variant library
+      const html = typeof call.input.html === 'string' ? call.input.html.trim() : ''
+      if (html.length > 40) {
+        const r = await window.slidesApi.htmlToNative({ slideIndex: idx, html })
+        if (r && 'slide' in r && r.slide) {
+          access.applySlide(idx, r.slide)
+          access.onPagesRebuilt?.([idx])
+          const imgNote = 'imageFailures' in r && r.imageFailures ? ` (${r.imageFailures} image(s) failed to download)` : ''
+          return {
+            output: `Page ${idx + 1} was rebuilt from your HTML as native elements${imgNote}. Call read_slide to verify, then fine-tune with execute_slide_script if needed.`,
+            mutated: true,
+            summary: t('aiSumRegenPage', { n: idx + 1 }),
+          }
+        }
+        return fail(
+          t('aiFailRegen'),
+          `HTML conversion failed: ${r && 'error' in r ? r.error : 'unknown'}. Fix the HTML per the contract (solid fills, .slide 1280×720, real text, <img> for images) and retry, or use a structured plan instead.`,
+        )
+      }
       const parsed = parsePagePlan(call.input.plan)
       if (!parsed.ok) {
         return fail(

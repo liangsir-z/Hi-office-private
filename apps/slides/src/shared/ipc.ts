@@ -1314,6 +1314,11 @@ export interface SlidesApi {
     hPx: number
     fitWidthPx: number
   }) => Promise<{ slide: RenderSlide; sourceId: string } | null>
+  /** Local HTML→native page rebuild: render the page HTML in a hidden window and rebuild the slide with native elements */
+  htmlToNative: (op: {
+    slideIndex: number
+    html: string
+  }) => Promise<{ slide: RenderSlide; imageFailures?: number } | { error: string }>
   /** AI image generation/editing, returns the image URL */
   generateImage: (op: {
     prompt: string
