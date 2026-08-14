@@ -1,5 +1,5 @@
 import { basename } from 'node:path'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
 import type { Rectangle, WebContents, WebContentsView } from 'electron'
 
 import {
@@ -62,6 +62,10 @@ export class TabManager {
     private readonly applyMenuFor: (kind: TabKind) => void,
     /** localized placeholder title for a tab that has no file yet */
     private readonly untitledTitleFor?: (kind: TabKind) => string,
+    /** localized strings for the renderer-crash dialog */
+    private readonly t: (key: string, params?: Record<string, string | number>) => string = (
+      key,
+    ) => key,
   ) {
     // Layout once synchronously for macOS/Windows (bounds are already correct),
     // then once more on the next tick. On Linux/X11, `resize` fires before the
@@ -101,6 +105,39 @@ export class TabManager {
     })
   }
 
+  /**
+   * Renderer crash recovery: without a handler, a crashed tab (OOM etc.)
+   * stays a permanently blank view with no feedback. Ask the user to reload
+   * (best effort — open-file state lives in the main process, and
+   * docs/sheets/slides keep periodic recovery copies) or close the tab.
+   */
+  private trackRendererCrash(id: string, view: WebContentsView): void {
+    view.webContents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'clean-exit') return
+      const live = (tab: { view: WebContentsView | null }) => tab.view === view
+      const tab = this.tabs.find((t) => t.id === id)
+      if (!tab || !live(tab)) return
+      if (this.activeId !== id) this.activateTab(id)
+      const title = tab.title
+      void dialog
+        .showMessageBox(this.shellWindow, {
+          type: 'error',
+          message: this.t('tabCrashTitle'),
+          detail: this.t('tabCrashMsg', { title, reason: details.reason }),
+          buttons: [this.t('tabCrashReload'), this.t('menuClose')],
+          defaultId: 0,
+          noLink: true,
+        })
+        .then(({ response }) => {
+          // the tab may have been closed while the dialog was up
+          const still = this.tabs.find((t) => t.id === id)
+          if (!still || still.view !== view) return
+          if (response === 0 && !view.webContents.isDestroyed()) view.webContents.reload()
+          else void this.closeTab(id)
+        })
+    })
+  }
+
   /** re-fit the active tab's view after a window resize */
   layout(): void {
     // Deferred resize layouts can land after the shell window was closed.
@@ -130,6 +167,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(id, view)
+    this.trackRendererCrash(id, view)
     this.tabs.push({
       id,
       kind: 'docs',
@@ -148,6 +186,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(id, view)
+    this.trackRendererCrash(id, view)
     this.tabs.push({
       id,
       kind: 'sheets',
@@ -165,6 +204,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(id, view)
+    this.trackRendererCrash(id, view)
     this.tabs.push({
       id,
       kind: 'slides',
@@ -182,6 +222,7 @@ export class TabManager {
     this.shellWindow.contentView.addChildView(view)
     view.setVisible(false)
     this.trackHtmlFullScreen(id, view)
+    this.trackRendererCrash(id, view)
     this.tabs.push({ id, kind: 'pdf', view, title: basename(openPath), filePath: openPath })
     this.activateTab(id)
     return id

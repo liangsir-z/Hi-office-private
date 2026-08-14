@@ -20,6 +20,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  safeStorage,
   screen,
   shell,
   systemPreferences,
@@ -51,7 +52,10 @@ import {
   AiCreditsError,
   AiTimeoutError,
   chatForProvider,
+  decodeSettingsSecrets,
   defaultAiSettings,
+  encodeSettingsSecrets,
+  makeSafeStorageCodec,
   resolveAiSettings,
   streamForProvider,
   type AiProviderId,
@@ -1171,6 +1175,9 @@ function writeJson(path: string, value: unknown): void {
 
 const SETTINGS_PATH = () => userDataPath('ai-settings.json')
 
+/** ai-settings.json at rest: API keys encrypted through the OS keychain when available */
+const secretCodec = makeSafeStorageCodec(safeStorage)
+
 // Dev-only automation hooks: a fixed CDP port for driving the app from test
 // scripts, and a workbook path that bypasses the native file dialog.
 const debugPort = app.isPackaged ? undefined : process.env.XLSX_DEBUG_PORT
@@ -2066,7 +2073,7 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiGetSettings, (event): AiSettings => {
     sessionFor(event)
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
-    const settings = resolveAiSettings(stored, defaultAiSettings())
+    const settings = resolveAiSettings(decodeSettingsSecrets(stored, secretCodec), defaultAiSettings())
     // [BYOK] allow user-chosen provider.
     return settings
   })
@@ -2074,7 +2081,7 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiSetSettings, (event, input: unknown) => {
     sessionFor(event)
     const settings = aiSettingsInputSchema.parse(input)
-    writeJson(SETTINGS_PATH(), settings)
+    writeJson(SETTINGS_PATH(), encodeSettingsSecrets(settings, secretCodec))
   })
 
   ipcMain.handle(IPC_CHANNELS.aiChat, async (event, input: unknown) => {

@@ -12,6 +12,12 @@ export type {
   LegacyAiSettings,
 } from './types'
 export { AI_PROVIDERS, defaultAiSettings, resolveAiSettings } from './providers'
+export {
+  decodeSettingsSecrets,
+  encodeSettingsSecrets,
+  makeSafeStorageCodec,
+} from './secrets'
+export type { SafeStorageLike, SecretCodec } from './secrets'
 export { chatForProvider } from './chat'
 export { AiCreditsError, sseLines, streamForProvider } from './stream'
 export type { StreamCallbacks } from './stream'

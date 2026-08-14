@@ -4,13 +4,16 @@
  * to avoid renderer CORS), search tools, and the slides-only ai:* channels
  * (image generation, media analysis, style templates).
  */
-import { app, ipcMain, shell } from 'electron'
+import { app, ipcMain, safeStorage, shell } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   AiCreditsError,
   AiTimeoutError,
+  decodeSettingsSecrets,
   defaultAiSettings,
+  encodeSettingsSecrets,
+  makeSafeStorageCodec,
   resolveAiSettings,
   streamForProvider,
   type AiSettings,
@@ -31,6 +34,9 @@ import { pushHistory, rebuildSlide, sessions } from './session-state'
 
 const AI_SETTINGS_PATH = () => join(app.getPath('userData'), 'ai-settings.json')
 
+/** ai-settings.json at rest: API keys encrypted through the OS keychain when available */
+const secretCodec = makeSafeStorageCodec(safeStorage)
+
 function readJson<T>(path: string, fallback: T): T {
   try {
     if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf-8')) as T
@@ -50,13 +56,13 @@ const activeAiStreams = new Map<string, AbortController>()
 export function registerAiIpc(): void {
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(AI_SETTINGS_PATH(), {})
-    const settings = resolveAiSettings(stored, defaultAiSettings())
+    const settings = resolveAiSettings(decodeSettingsSecrets(stored, secretCodec), defaultAiSettings())
     // [BYOK] allow user-chosen provider.
     return settings
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    writeJson(AI_SETTINGS_PATH(), settings)
+    writeJson(AI_SETTINGS_PATH(), encodeSettingsSecrets(settings, secretCodec))
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {

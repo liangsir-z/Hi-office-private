@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, stat, unlink } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { BrowserWindow, Menu, WebContentsView, app, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, Menu, WebContentsView, app, dialog, ipcMain, safeStorage, shell } from 'electron'
 import {
   appMenuLabels,
   contextMenuLabels,
@@ -36,7 +36,10 @@ import {
   AiCreditsError,
   AiTimeoutError,
   chatForProvider,
+  decodeSettingsSecrets,
   defaultAiSettings,
+  encodeSettingsSecrets,
+  makeSafeStorageCodec,
   resolveAiSettings,
   streamForProvider,
   type AiChatRequest,
@@ -2426,6 +2429,9 @@ const TWIPS_PER_INCH = 1440
 
 const SETTINGS_PATH = () => userDataPath('ai-settings.json')
 
+/** ai-settings.json at rest: API keys encrypted through the OS keychain when available */
+const secretCodec = makeSafeStorageCodec(safeStorage)
+
 const activeAiStreams = new Map<string, AbortController>()
 
 /**
@@ -2436,13 +2442,13 @@ const activeAiStreams = new Map<string, AbortController>()
 export function registerAiIpc(): void {
   ipcMain.handle('ai:get-settings', (): AiSettings => {
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
-    const settings = resolveAiSettings(stored, defaultAiSettings())
+    const settings = resolveAiSettings(decodeSettingsSecrets(stored, secretCodec), defaultAiSettings())
     // [BYOK] allow user-chosen provider (custom/openai/anthropic/gemini/deepseek).
     return settings
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    writeJson(SETTINGS_PATH(), settings)
+    writeJson(SETTINGS_PATH(), encodeSettingsSecrets(settings, secretCodec))
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
