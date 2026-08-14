@@ -16,6 +16,13 @@ export interface AiProviderMeta {
   defaultModel: string
   keyPlaceholder: string
   needsBaseUrl?: boolean
+  /**
+   * Whether the provider's chat models accept image input. When false,
+   * inline image attachments are stripped before the request (the OpenAI-
+   * compatible wire format's image_url part is rejected with HTTP 400 by
+   * text-only backends such as DeepSeek).
+   */
+  vision?: boolean
 }
 
 export interface AiSettings {

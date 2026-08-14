@@ -4,6 +4,7 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'anthropic',
     label: 'Claude',
+    vision: true,
     models: [
       'claude-sonnet-5',
       'claude-opus-4-8',
@@ -20,6 +21,7 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'gemini',
     label: 'Gemini',
+    vision: true,
     models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'],
     defaultModel: 'gemini-2.5-flash',
     keyPlaceholder: 'AIza...',
@@ -27,6 +29,9 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'deepseek',
     label: 'DeepSeek',
+    // deepseek-chat / deepseek-reasoner are text-only: their API rejects the
+    // OpenAI image_url content part with HTTP 400
+    vision: false,
     models: ['deepseek-chat', 'deepseek-reasoner'],
     defaultModel: 'deepseek-chat',
     keyPlaceholder: 'sk-...',
@@ -34,6 +39,7 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'openai',
     label: 'OpenAI',
+    vision: true,
     models: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini'],
     defaultModel: 'gpt-4.1-mini',
     keyPlaceholder: 'sk-...',
@@ -41,12 +47,18 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'custom',
     label: 'Custom',
+    vision: true,
     models: [],
     defaultModel: '',
     keyPlaceholder: 'API Key',
     needsBaseUrl: true,
   },
 ]
+
+/** Whether the provider's models accept inline image attachments. */
+export function providerSupportsVision(provider: AiProviderId): boolean {
+  return AI_PROVIDERS.find((meta) => meta.id === provider)?.vision !== false
+}
 
 /**
  * Fresh settings with every provider's default model and an empty key,

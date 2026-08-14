@@ -1,6 +1,7 @@
 import type { AgentMessage, AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
 import { httpBodyDetail } from './http-error'
 import type { AiProviderConfig, AiProviderId } from './types'
+import { providerSupportsVision } from './providers'
 import { createStreamWatchdog, type StreamWatchdog } from './watchdog'
 
 // ---- streaming (SSE line splitting shared by all providers) ----
@@ -597,18 +598,19 @@ async function geminiTurn(
 
 // ---- OpenAI-compatible (openai / deepseek / custom) ----
 
-function openAiMessages(system: string, messages: AgentMessage[]): unknown[] {
+function openAiMessages(system: string, messages: AgentMessage[], includeImages: boolean): unknown[] {
   const out: unknown[] = [{ role: 'system', content: system }]
   for (const m of messages) {
     if (m.role === 'user') {
-      if (!m.images?.length) {
+      const images = includeImages ? (m.images ?? []) : []
+      if (!images.length) {
         out.push({ role: 'user', content: m.text })
       } else {
         out.push({
           role: 'user',
           content: [
             ...(m.text ? [{ type: 'text', text: m.text }] : []),
-            ...m.images.map((img) => ({
+            ...images.map((img) => ({
               type: 'image_url',
               image_url: { url: `data:${img.mime};base64,${img.base64}` },
             })),
@@ -693,10 +695,11 @@ export async function streamOpenAiCompatible(
   tools: AgentToolDef[],
   maxTokens: number,
   cb: StreamCallbacks,
+  includeImages = true,
 ): Promise<void> {
   const wd = createStreamWatchdog(cb.signal)
   return wd.guard(() =>
-    openAiCompatibleTurn(baseUrl, config, system, messages, tools, maxTokens, cb, wd),
+    openAiCompatibleTurn(baseUrl, config, system, messages, tools, maxTokens, cb, wd, includeImages),
   )
 }
 
@@ -709,6 +712,7 @@ async function openAiCompatibleTurn(
   maxTokens: number,
   cb: StreamCallbacks,
   wd: StreamWatchdog,
+  includeImages: boolean,
 ): Promise<void> {
   const onBytes = () => {
     wd.touch()
@@ -724,7 +728,7 @@ async function openAiCompatibleTurn(
     body: JSON.stringify({
       model: config.model,
       max_tokens: maxTokens,
-      messages: openAiMessages(system, messages),
+      messages: openAiMessages(system, messages, includeImages),
       ...(tools.length > 0
         ? {
             tools: tools.map((t) => ({
@@ -861,10 +865,21 @@ export async function streamForProvider(
         tools,
         maxTokens,
         cb,
+        // text-only backends (deepseek-chat/reasoner) reject image_url parts with 400
+        providerSupportsVision(provider),
       )
     case 'custom':
       if (!config.baseUrl) throw new Error('A custom provider requires a Base URL')
-      return streamOpenAiCompatible(config.baseUrl, config, system, messages, tools, maxTokens, cb)
+      return streamOpenAiCompatible(
+        config.baseUrl,
+        config,
+        system,
+        messages,
+        tools,
+        maxTokens,
+        cb,
+        providerSupportsVision(provider),
+      )
     default:
       throw new Error(`Unknown provider: ${provider}`)
   }
