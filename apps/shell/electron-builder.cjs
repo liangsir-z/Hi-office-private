@@ -44,13 +44,17 @@ for (const rel of [
 // Runs from the beforePack hook, not at module load: gen-third-party-notices
 // requires this config to read extraResources, and the dist:* scripts run
 // notices before build:all, when the out dirs legitimately don't exist yet.
-function assertModuleTreesPresent() {
+function assertModuleTreesPresent(platformName) {
   for (const rel of [
     '../docs/out',
     '../sheets/out',
     '../slides/out',
     '../pdf/out',
     '../../packages/skills-builtin/skills',
+    // The sidecar binary ships as an extraResource per platform (win adds
+    // .exe) but has no out/ tree — assert it directly, since a missing
+    // sidecar would otherwise surface only at runtime in sheets.
+    `../sheets/native/xlsx-engine/target/release/xlsx-sidecar${platformName === 'win' ? '.exe' : ''}`,
   ]) {
     if (!existsSync(join(__dirname, rel))) {
       throw new Error(
@@ -211,8 +215,8 @@ const config = {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
   },
-  beforePack: async () => {
-    assertModuleTreesPresent()
+  beforePack: async (context) => {
+    assertModuleTreesPresent(context?.platformName)
   },
   dmg: {
     sign: false,

@@ -3575,10 +3575,28 @@ export function requestDocsClose(
 
 const docsCloseRequests = new Map<number, Promise<boolean>>()
 
+/**
+ * Forced shutdown (SIGTERM/SIGINT — an installer, restart, or killall): the
+ * close guard must not raise the Save dialog then, because a dialog shown
+ * while quitting resolves to its default button (Save) and would silently
+ * overwrite the original file with edits nobody approved. Proceed without
+ * saving instead; the periodic recovery copy covers unsaved work. A
+ * user-initiated quit (Cmd+Q / menu Quit) still prompts normally —
+ * before-quit is deliberately not treated as forced.
+ */
+let forcedShutdown = false
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    forcedShutdown = true
+    app.quit()
+  })
+}
+
 async function performDocsClose(
   contents: WebContents,
   parent?: BrowserWindow | null,
 ): Promise<boolean> {
+  if (forcedShutdown) return true
   const state = await queryCloseState(contents)
   if (!state.dirty || contents.isDestroyed()) return true
   if (state.unresponsive) {

@@ -334,8 +334,10 @@ export function initAutoUpdater(
   // the shell (no parent terminal) — so merely configuring autoUpdater would
   // throw EPIPE on the first console.log and crash the main process. If there
   // is no update feed baked in, leave the updater dormant.
-  const updateFeed = join(process.resourcesPath, 'app-update.yml')
-  if (!existsSync(updateFeed)) {
+  const updateFeed = process.resourcesPath
+    ? join(process.resourcesPath, 'app-update.yml')
+    : null
+  if (!updateFeed || !existsSync(updateFeed)) {
     log('no app-update.yml in resources — updater dormant')
     return
   }

@@ -1,6 +1,6 @@
 # ee/ is the enterprise-license boundary and takes no external contributions
-# (see ee/LICENSE); license-related files need a maintainer review.
-/ee/ @merrick-2002
-/LICENSE @merrick-2002
-/NOTICE @merrick-2002
-/.github/CODEOWNERS @merrick-2002
+# (see ee/LICENSE); license-related files need an owner review.
+/ee/ @liangsir-z
+/LICENSE @liangsir-z
+/NOTICE @liangsir-z
+/.github/CODEOWNERS @liangsir-z

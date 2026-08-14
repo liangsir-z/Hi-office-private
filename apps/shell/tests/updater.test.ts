@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { UpdateUiState } from '../src/shared/update-api'
 
 /**
@@ -87,6 +90,16 @@ vi.mock('../src/main/update-window', () => ({
 const FIRST_CHECK_DELAY_MS = 15_000
 const RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 
+// Packaged apps carry resources/app-update.yml; the updater stays dormant
+// without it. Provide a stand-in resources dir so the active-path tests run
+// (plain Node has no process.resourcesPath — Electron injects it).
+const fakeResourcesPath = mkdtempSync(join(tmpdir(), 'updater-test-'))
+writeFileSync(
+  join(fakeResourcesPath, 'app-update.yml'),
+  'provider: generic\nurl: https://example.com/feed\n',
+)
+const realResourcesPath = process.resourcesPath
+
 let platformSpy: { restore: () => void } | null = null
 
 function setPlatform(platform: string): void {
@@ -118,6 +131,7 @@ beforeEach(() => {
   vi.resetModules()
   vi.useFakeTimers()
   appState.isPackaged = true
+  process.resourcesPath = fakeResourcesPath
   delete process.env.GENOFFICE_FAKE_UPDATE
   updaterState.listeners.clear()
   updaterState.autoDownload = true
@@ -139,6 +153,8 @@ afterEach(() => {
   vi.useRealTimers()
   platformSpy?.restore()
   platformSpy = null
+  if (realResourcesPath === undefined) delete process.resourcesPath
+  else process.resourcesPath = realResourcesPath
   delete process.env.GENOFFICE_FAKE_UPDATE
 })
 

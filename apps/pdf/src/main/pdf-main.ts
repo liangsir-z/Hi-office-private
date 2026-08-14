@@ -279,6 +279,22 @@ export function pdfIsDirty(webContentsId: number): boolean {
 }
 
 /**
+ * Forced shutdown (SIGTERM/SIGINT — an installer, restart, or killall): the
+ * close guard must not raise the Save dialog then, because a dialog shown
+ * while quitting resolves to its default button (Save) and would silently
+ * overwrite the original file with edits nobody approved. Proceed without
+ * saving instead. A user-initiated quit (Cmd+Q / menu Quit) still prompts
+ * normally — before-quit is deliberately not treated as forced.
+ */
+let forcedShutdown = false
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    forcedShutdown = true
+    app.quit()
+  })
+}
+
+/**
  * Close guard for the pdf renderer: true means proceed with closing.
  * Clean → true; dirty → Save / Don't Save / Cancel. On Save, ask the renderer to
  * write to disk and await the result; on failure or timeout stay open (renderer
@@ -289,6 +305,7 @@ export async function requestPdfClose(
   parent?: BrowserWindow | null,
 ): Promise<boolean> {
   if (!dirtyByWc.has(contents.id) || contents.isDestroyed()) return true
+  if (forcedShutdown) return true
   const options = {
     type: 'warning' as const,
     message: tm('closeUnsavedMsg'),
