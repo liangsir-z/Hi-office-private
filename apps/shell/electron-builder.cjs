@@ -151,7 +151,8 @@ const config = {
     gatekeeperAssess: false,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
-    notarize: true,
+    // Local unsigned build: no Apple Developer certificate available.
+    notarize: false,
     extraResources: [
       {
         from: '../sheets/native/xlsx-engine/target/release/xlsx-sidecar',
@@ -214,9 +215,9 @@ const config = {
     assertModuleTreesPresent()
   },
   dmg: {
-    sign: true,
+    sign: false,
   },
-  afterAllArtifactBuild: 'build/notarize-dmg.js',
+  // afterAllArtifactBuild: 'build/notarize-dmg.js',
 }
 
 if (updateUrl) {

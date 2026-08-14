@@ -4,39 +4,20 @@ An AI-native office suite for macOS and Windows: word processor, spreadsheet,
 presentations, and PDF — five Electron apps sharing one engine layer, built
 around AI editing as a first-class workflow rather than a bolted-on chat box.
 
-[![Meet Hi-office — the world's first full-featured open-source AI Office (video)](https://img.youtube.com/vi/B2pLdMX95v4/maxresdefault.jpg)](https://www.youtube.com/watch?v=B2pLdMX95v4)
+## Install
 
-[Watch the demo video on YouTube](https://www.youtube.com/watch?v=B2pLdMX95v4)
-
-## Download
-
-| Platform                        | Requirements                                | Download                                                                                                                             |
-| ------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| **macOS** (Apple Silicon)       | macOS 11+                                   | [GenOffice-0.5.83-arm64.dmg](https://github.com/genspark-ai/genoffice/releases/download/v0.5.83/GenOffice-0.5.83-arm64.dmg)          |
-| **Windows** (x64)               | Windows 10+                                 | [GenOfficeSetup-v0.5.79.exe](https://github.com/genspark-ai/genoffice/releases/download/v0.5.83/GenOfficeSetup-v0.5.79.exe)          |
-| **Linux** — Debian / Ubuntu     | x86_64, glibc 2.34+ (Ubuntu 22.04 or newer) | [genoffice_0.5.149_amd64.deb](https://github.com/genspark-ai/genoffice/releases/download/linux-v0.5.149/genoffice_0.5.149_amd64.deb) |
-| **Linux** — other distributions | x86_64, glibc 2.34+, FUSE 2                 | [GenOffice-0.5.149.AppImage](https://github.com/genspark-ai/genoffice/releases/download/linux-v0.5.149/GenOffice-0.5.149.AppImage)   |
-
-All builds come from `main`; the macOS and Windows installers are signed.
-Older versions are on the [Releases](https://github.com/genspark-ai/genoffice/releases) page.
-
-### Installing on Linux
-
-The deb installs with apt — it pulls in the dependencies and adds Hi-office
-to the applications menu:
+Installers are built internally from this repository and distributed to the
+team directly; there is no public download page.
 
 ```bash
-sudo apt install ./genoffice_0.5.149_amd64.deb
+npm install
+npm run dist:mac   # macOS dmg (Apple Silicon)
+npm run dist:win   # Windows nsis installer
+npm run dist:linux # Linux AppImage
 ```
 
-The AppImage instead runs in place: install the FUSE 2 runtime
-(`sudo apt install libfuse2`; on Ubuntu 24.04 the package is `libfuse2t64`),
-make the file executable, then run it:
-
-```bash
-chmod +x GenOffice-0.5.149.AppImage
-./GenOffice-0.5.149.AppImage
-```
+The installers produced this way are unsigned: on macOS, open the app with
+right-click → Open the first time.
 
 ## Apps
 
@@ -52,8 +33,10 @@ Every app embeds the same AI panel: block-granular AI editing with version
 snapshots and diffs in docs, a tool-calling agent over workbook/slide/PDF
 state in the others.
 
-**AI providers.** The apps sign in to a Genspark account and route model
-calls through the Genspark service side; no model API key is stored locally.
+**AI providers (BYOK).** Each user brings their own API key — DeepSeek,
+OpenAI, Anthropic, Gemini, or any OpenAI-compatible endpoint — configured in
+the in-app AI settings. Requests go directly from the app to the chosen
+provider; there is no intermediate account or gateway.
 
 ## Engine packages
 
@@ -69,7 +52,8 @@ All pure TypeScript, no Electron dependency, unit-tested (except the UI kit):
   every app.
 - `packages/ai-provider` — provider abstraction and streaming for the model
   backends.
-- `packages/ai-search` — Genspark auth + web/image search tools.
+- `packages/ai-search` — web/image search tools (Serper with an API key,
+  otherwise keyless DuckDuckGo).
 - `packages/i18n`, `packages/ui`, `packages/project-store`,
   `packages/electron-utils` — shared i18n core, React UI kit, recent-files
   store, and Electron main-process helpers.
@@ -129,6 +113,6 @@ Hi-office is licensed under the [Apache License 2.0](LICENSE), with one
 exception: the `ee/` directory is reserved for future enterprise modules and
 is covered by the [Hi-office Enterprise License](ee/LICENSE).
 
-The Hi-office and Genspark names and logos are trademarks of Mainfunc, Inc.
-The Apache-2.0 license does not grant permission to use them (see section 6);
-forks should use their own branding.
+This is an independently maintained fork rebranded as Hi-office. The upstream
+GenOffice/Genspark names and logos are trademarks of Mainfunc, Inc. and are
+not used by this project.

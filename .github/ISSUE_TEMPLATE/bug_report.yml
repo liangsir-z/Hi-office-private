@@ -8,10 +8,10 @@ body:
       label: App
       description: Which part of the suite is affected?
       options:
-        - GenOffice Docs (docs)
-        - GenOffice Sheets (sheets)
-        - GenOffice Slides (slides)
-        - GenOffice PDF (pdf)
+        - Hi-office Docs (docs)
+        - Hi-office Sheets (sheets)
+        - Hi-office Slides (slides)
+        - Hi-office PDF (pdf)
         - Shell / home screen
         - AI panel / providers
         - Build / packaging

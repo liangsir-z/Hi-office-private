@@ -6,7 +6,7 @@
   "private": true,
   "description": "Unified Hi-office shell: one app hosting the docs and sheets modules behind a home/launcher window",
   "main": "out/main/index.js",
-  "desktopName": "genoffice.desktop",
+  "desktopName": "hi-office.desktop",
   "scripts": {
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",

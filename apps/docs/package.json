@@ -47,7 +47,7 @@
   },
   "author": "Hi-office",
   "build": {
-    "appId": "com.genoffice.docs",
+    "appId": "com.hioffice.docs",
     "productName": "Hi-office Docs",
     "electronVersion": "43.3.0",
     "artifactName": "AIDocx-${version}-${arch}.${ext}",

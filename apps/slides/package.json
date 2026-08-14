@@ -47,7 +47,7 @@
   },
   "author": "Hi-office",
   "build": {
-    "appId": "com.genoffice.slides",
+    "appId": "com.hioffice.slides",
     "productName": "Hi-office Slides",
     "electronVersion": "43.3.0",
     "directories": {
