@@ -72,18 +72,21 @@ export function mergeQcPages(
 /** Only the two tools the QC pass needs: fresh geometry reads + atomic layout scripts */
 const QC_TOOL_ALLOWLIST = new Set(['read_slide', 'execute_slide_script'])
 
-const QC_SYSTEM_PROMPT = `You are a slide layout QA fixer. Each request gives you ONE slide: a rendered screenshot (attached image) and an element inventory (ids, geometry, colors, text — the same ids the tools accept).
+const QC_SYSTEM_PROMPT = `You are a slide layout QA fixer. Each request gives you ONE slide: an element inventory (ids, geometry, colors, text — the same ids the tools accept), plus a rendered screenshot when the model supports vision.
 
-Look at the screenshot for OBJECTIVE layout defects only:
+Judge OBJECTIVE layout defects only:
 - text overflowing its box, colliding with a neighbor, or clipped by the canvas edge
 - elements overlapping unintentionally (a text block over another text block; content under an image)
-- unreadable contrast (text color too close to what it sits on)
+- text too small to read (body under ~14pt) or no font-size hierarchy (largest text under ~24pt on a content page)
+- unreadable contrast (text color too close to what it sits on — compare the hex colors in the inventory)
 - obviously ragged alignment or wildly uneven spacing among sibling items (cards, bullets, columns)
 - distorted or badly cropped images
 
+Without a screenshot, reason from the inventory's geometry/colors/font sizes; the deterministic audit flags below are authoritative starting points, not just hints.
+
 Fix defects with execute_slide_script (batch every change for this page into as few calls as possible; call read_slide first if you need fresher geometry than the inventory). Prefer the minimal change: move/resize/shrink font — keep the page's design.
 
-STRICTLY FORBIDDEN: redesigning the page, changing the color scheme or fonts for taste, rewriting copy, adding or deleting elements, touching elements that look fine. When the screenshot shows no objective defect, make NO tool call.
+STRICTLY FORBIDDEN: redesigning the page, changing the color scheme or fonts for taste, rewriting copy, adding or deleting elements, touching elements that look fine. When nothing has an objective defect, make NO tool call.
 
 Final reply: one short line (under 15 words) stating what you fixed, or exactly "OK" if nothing needed fixing.`
 
@@ -121,11 +124,23 @@ export function createSlideFixSkill(access: DeckAccess): AgentSkill {
   }
 }
 
-function buildQcInstruction(pageIndex: number, dump: string, issues: string[]): string {
+function buildQcInstruction(
+  pageIndex: number,
+  dump: string,
+  issues: string[],
+  hasScreenshot: boolean,
+): string {
   const auditStr = issues.length
-    ? `Deterministic geometry audit already flags:\n${issues.map((s) => `- ${s}`).join('\n')}\n(These are hints — the screenshot is the ground truth; it may show more or reveal a flagged item is fine.)`
-    : 'The deterministic geometry audit found nothing — trust the screenshot for visual defects it cannot measure (contrast, alignment, crowding).'
-  return `Slide ${pageIndex + 1} (slideIndex ${pageIndex}) was just auto-generated. The attached image is its current rendering.
+    ? hasScreenshot
+      ? `Deterministic geometry audit already flags:\n${issues.map((s) => `- ${s}`).join('\n')}\n(These are hints — the screenshot is the ground truth; it may show more or reveal a flagged item is fine.)`
+      : `The deterministic audit flags:\n${issues.map((s) => `- ${s}`).join('\n')}\n(These are authoritative for geometry — verify against the inventory, then fix.)`
+    : hasScreenshot
+      ? 'The deterministic geometry audit found nothing — trust the screenshot for visual defects it cannot measure (contrast, alignment, crowding).'
+      : 'The deterministic audit found nothing — check the inventory yourself for font-size and contrast issues it cannot measure.'
+  const sight = hasScreenshot
+    ? 'The attached image is its current rendering.'
+    : 'No screenshot is attached (text-only model): reason strictly from the inventory geometry, font sizes, and hex colors.'
+  return `Slide ${pageIndex + 1} (slideIndex ${pageIndex}) was just auto-generated. ${sight}
 
 Element inventory:
 ${dump}
@@ -153,7 +168,7 @@ export function qcSlidePage(opts: QcPageOptions): Promise<QcPageResult> {
     })
   }
   const preIssues = auditSlideLayout(slide)
-  const instruction = buildQcInstruction(pageIndex, formatSlideDump(slide), preIssues)
+  const instruction = buildQcInstruction(pageIndex, formatSlideDump(slide), preIssues, !!screenshot)
 
   return new Promise((resolve) => {
     let edited = false

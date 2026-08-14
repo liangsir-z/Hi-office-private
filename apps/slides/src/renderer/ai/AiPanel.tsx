@@ -11,11 +11,14 @@ import type { AiSettings, AttachmentAddResult, AttachmentMeta } from '../../shar
 import { ATTACHMENT_IMAGE_EXTS } from '../../shared/ipc'
 import {
   createSlidesSkill,
+  formatSlideDump,
   type DeckAccess,
   type ClarifyQuestion,
   type DeckProgressEvent,
   type PageProgressItem,
 } from './slides-skill'
+import { auditSlideLayout } from './layout-audit'
+import { providerSupportsVision } from '@genoffice/ai-provider'
 import { extractJsonObject, parseOutlineJson } from './outline-json'
 import { createFilesSkill } from './files-skill'
 import { createElectronTransport } from './transport'
@@ -1252,20 +1255,40 @@ export function AiPanel({
         // the note rides on the model instruction only — the chat bubble stays the localized preset text
         let modelInstruction = instruction
         if (opts?.slideShot) {
-          const shot = await captureSlideShot(currentRef.current)
+          const idx = currentRef.current
+          const slide = slidesRef.current[idx]
+          // attach the screenshot only when the active model can actually see
+          // it — text-only backends strip image parts, and a "(attached
+          // image...)" note that lies makes the model hallucinate what it saw
+          const cfg = settingsRef.current.providers[settingsRef.current.provider]
+          const vision = providerSupportsVision(settingsRef.current.provider, cfg?.model)
+          const shot = vision && slide ? await captureSlideShot(idx) : null
           if (shot) {
             images.push(shot)
-            modelInstruction += `\n\n(Attached image: the current rendering of this slide, slideIndex ${currentRef.current}. Use it to spot visual issues the element inventory can't show.)`
+            modelInstruction += `\n\n(Attached image: the current rendering of this slide, slideIndex ${idx}. Use it to spot visual issues the element inventory can't show.)`
+          } else if (slide) {
+            // text-only model: hand it the same facts deterministically
+            modelInstruction += `\n\n<element-inventory slideIndex="${idx}">\n${formatSlideDump(slide)}\n</element-inventory>`
           }
-          // Smaller chat models tend to answer beautify requests with styling
-          // advice instead of acting. Make the contract explicit: this preset
-          // edits the slide through tools, sighted or not.
+          if (slide) {
+            const issues = auditSlideLayout(slide)
+            if (issues.length) {
+              modelInstruction += `\n\n<layout-audit>\nDeterministic checks already flag:\n${issues
+                .map((s) => `- ${s}`)
+                .join('\n')}\n</layout-audit>`
+            }
+          }
+          // Deterministic design rules replace the missing design "eye" of
+          // smaller/text-only models, and make weak models act instead of advise.
           modelInstruction +=
-            '\n\nIMPORTANT: You are expected to ACT, not advise. First inspect the current slide ' +
-            '(the attached image if present, otherwise call read_slide for the element inventory), ' +
-            'then improve its layout, colors, and font hierarchy by calling your editing tools. ' +
-            'Replying with suggestions only is a failure — apply the changes, then summarize ' +
-            'briefly what you changed.'
+            '\n\nDESIGN RULES (enforce these; they override your habits):\n' +
+            '- Font hierarchy: exactly one prominent title per page (≥ 28pt); body text ≥ 14pt; beyond title/body/caption avoid extra font sizes.\n' +
+            "- One key message per page: ≤ 6 bullets; shorten wording rather than shrinking fonts; each line ≤ ~40 characters where possible.\n" +
+            '- Color: stay within the deck\'s existing palette; at most one accent color over neutrals; text must clearly contrast with its background (dark-on-light or light-on-dark).\n' +
+            '- Spacing/alignment: consistent left margin; ≥ 24px padding inside boxes; nothing within 16px of the canvas edges; no element overlaps.\n' +
+            'IMPORTANT: You are expected to ACT, not advise. Inspect the slide first (the attached image if present, otherwise the element inventory above), ' +
+            'then improve its layout, colors, and font hierarchy by calling your editing tools. Replying with suggestions only is a failure — ' +
+            'apply the changes, then summarize briefly what you changed.'
         }
         // Clear the flag before run: loop.run sets running synchronously, leaving no re-entry window
         runStartingRef.current = false
@@ -1303,8 +1326,12 @@ export function AiPanel({
     try {
       for (const page of capped) {
         if (controller.signal.aborted) break
-        const shot = await captureSlideShot(page)
-        if (!shot) {
+        // text-only models get no screenshot on the wire — run the
+        // geometry-only QC pass instead of skipping the page
+        const cfg = settingsRef.current.providers[settingsRef.current.provider]
+        const vision = providerSupportsVision(settingsRef.current.provider, cfg?.model)
+        const shot = vision ? await captureSlideShot(page) : null
+        if (vision && !shot) {
           if (slidesRef.current[page]) lines.push(tGlobal('aiQcPageSkipped', { n: page + 1 }))
           continue
         }

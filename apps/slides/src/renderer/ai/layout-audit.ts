@@ -25,6 +25,8 @@ interface AuditEntry {
   preview: string
   /** Pixels by which the text content height exceeds the box height (only meaningful when >0) */
   overflowPx: number
+  /** Largest run font size in pt (px * 72/96); 0 when the element has no text */
+  fontPt: number
 }
 
 const PREVIEW_MAX = 18
@@ -46,6 +48,7 @@ function collectEntries(nodes: RenderNode[]): AuditEntry[] {
     let hasText = false
     let preview = ''
     let overflowPx = 0
+    let fontPt = 0
     if (n.type === 'shape' || n.type === 'text') {
       const sn = n as ShapeRenderNode
       preview = textPreview(sn)
@@ -53,13 +56,18 @@ function collectEntries(nodes: RenderNode[]): AuditEntry[] {
       if (sn.text && hasText) {
         const inner = h - sn.text.insets.t - sn.text.insets.b
         overflowPx = Math.round(sn.text.contentHeight - inner)
+        let maxPx = 0
+        for (const line of sn.text.lines ?? []) {
+          for (const r of line.runs) if (r.fontSizePx > maxPx) maxPx = r.fontSizePx
+        }
+        fontPt = maxPx > 0 ? Math.round((maxPx * 72) / 96) : 0
       }
     } else if (n.type === 'group') {
       // If any child in the group has text, treat it as text content for overlap detection
       hasText = groupHasText(n as GroupRenderNode)
       preview = '(group)'
     }
-    out.push({ id: n.sourceId, type: n.type, x, y, w, h, hasText, preview, overflowPx })
+    out.push({ id: n.sourceId, type: n.type, x, y, w, h, hasText, preview, overflowPx, fontPt })
   }
   return out
 }
@@ -127,7 +135,27 @@ export function auditSlideLayout(slide: RenderSlide): string[] {
     }
   }
 
-  // 3. Pairwise overlap of content elements
+  // 3. Text too small to read (body under 11pt on a projected slide)
+  for (const e of entries) {
+    if (e.hasText && e.fontPt > 0 && e.fontPt < 11) {
+      issues.push(
+        `Text too small: ${label(e)} uses ~${e.fontPt}pt (raise body text to ≥14pt; shorten wording instead of shrinking)`,
+      )
+    }
+  }
+
+  // 4. No font hierarchy: a content page whose largest text is body-sized
+  const textEntries = entries.filter((e) => e.hasText && e.fontPt > 0)
+  if (textEntries.length >= 2) {
+    const maxPt = Math.max(...textEntries.map((e) => e.fontPt))
+    if (maxPt < 18) {
+      issues.push(
+        `Weak hierarchy: the largest text on this page is only ~${maxPt}pt — give the title ≥24pt and keep body at 14-18pt`,
+      )
+    }
+  }
+
+  // 5. Pairwise overlap of content elements
   const content = entries.filter((e) => isContent(e) && e.w * e.h < W * H * BACKGROUND_AREA_RATIO)
   for (let i = 0; i < content.length; i++) {
     for (let j = i + 1; j < content.length; j++) {
