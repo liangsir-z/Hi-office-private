@@ -104,19 +104,6 @@ export function ModelSettingsPanel({ draft, setDraft, t }: ModelSettingsPanelPro
         )}
       </label>
 
-      {providerMeta?.needsBaseUrl && (
-        <label>
-          {t('settingsBaseUrl')}
-          <input
-            type="text"
-            value={providerCfg?.baseUrl ?? ''}
-            placeholder="https://api.siliconflow.cn/v1"
-            onChange={(e) => setProviderCfg({ baseUrl: e.target.value })}
-            spellCheck={false}
-          />
-        </label>
-      )}
-
       {/* Image generation */}
       <label>
         {t('settingsImageGen')}
