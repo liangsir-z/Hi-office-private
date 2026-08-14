@@ -39,12 +39,12 @@ function openAiDone(): Response {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('provider vision capability', () => {
-  it('marks deepseek as text-only and the others as vision-capable', () => {
+  it('gates deepseek off entirely and qwen by model', () => {
     expect(providerSupportsVision('deepseek')).toBe(false)
-    expect(providerSupportsVision('openai')).toBe(true)
-    expect(providerSupportsVision('anthropic')).toBe(true)
-    expect(providerSupportsVision('gemini')).toBe(true)
-    expect(providerSupportsVision('custom')).toBe(true)
+    expect(providerSupportsVision('deepseek', 'deepseek-chat')).toBe(false)
+    expect(providerSupportsVision('qwen', 'qwen-vl-max')).toBe(true)
+    expect(providerSupportsVision('qwen', 'qwen-plus')).toBe(false)
+    expect(providerSupportsVision('custom', 'any-model')).toBe(true)
   })
 })
 
@@ -66,12 +66,12 @@ describe('image stripping on the OpenAI-compatible wire format', () => {
     expect(user.content).toBe('美化这一页幻灯片')
   })
 
-  it('keeps image parts for vision-capable providers (openai)', async () => {
+  it('keeps image parts for vision models (qwen-vl)', async () => {
     const fetchMock = vi.fn().mockResolvedValue(openAiDone())
     vi.stubGlobal('fetch', fetchMock)
     await streamForProvider(
-      'openai',
-      { apiKey: 'k', model: 'gpt-4.1-mini' },
+      'qwen',
+      { apiKey: 'k', model: 'qwen-vl-max' },
       'sys',
       messageWithImage(),
       [],
@@ -81,5 +81,21 @@ describe('image stripping on the OpenAI-compatible wire format', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
     const parts = body.messages[1].content as Array<{ type: string }>
     expect(parts.map((p) => p.type)).toEqual(['text', 'image_url'])
+  })
+
+  it('strips images for a text model on a vision-capable provider (qwen-plus)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(openAiDone())
+    vi.stubGlobal('fetch', fetchMock)
+    await streamForProvider(
+      'qwen',
+      { apiKey: 'k', model: 'qwen-plus' },
+      'sys',
+      messageWithImage(),
+      [],
+      100,
+      collector().cb,
+    )
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string)
+    expect(body.messages[1].content).toBe('美化这一页幻灯片')
   })
 })

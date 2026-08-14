@@ -266,7 +266,7 @@ const THEME_FONT_OPTIONS = [
 ]
 
 const DEFAULT_SETTINGS: AiSettings = {
-  provider: 'anthropic',
+  provider: 'deepseek',
   providers: Object.fromEntries(
     AI_PROVIDERS.map((p) => [
       p.id,
@@ -630,28 +630,33 @@ export function App() {
     ).then(setUserTemplateColors)
   }, [templates])
 
+  /** [skills] (re)load user-supplied skills filtered by per-skill enable flags;
+   *  called on mount and after the settings dialog saves new enable flags */
+  const reloadSkills = useCallback(async (s: AiSettings) => {
+    const docsApi: SkillApi = { desktop: window.desktop as unknown as Record<string, (...a: unknown[]) => unknown> }
+    const metas = await window.desktop.skillList()
+    setSkillMetas(metas)
+    const skills = await loadUserSkills({
+      app: 'docs',
+      api: docsApi,
+      bridge: {
+        listSkills: () => Promise.resolve(metas),
+        readSkill: (dir) => window.desktop.skillRead(dir),
+      },
+      isEnabled: (dir) => s.skills?.[dir] !== false,
+    })
+    if (skills.length) {
+      setUserSkills(skills)
+      setAiPanelKey((k) => k + 1) // remount AiPanel so the loop picks up the new skills
+    }
+  }, [])
+
   useEffect(() => {
     void window.desktop.getAiSettings().then(async (s) => {
       setSettings(s)
-      // [skills] load user-supplied skills, filtered by per-skill enable flags
-      const docsApi: SkillApi = { desktop: window.desktop as unknown as Record<string, (...a: unknown[]) => unknown> }
-      const metas = await window.desktop.skillList()
-      setSkillMetas(metas)
-      const skills = await loadUserSkills({
-        app: 'docs',
-        api: docsApi,
-        bridge: {
-          listSkills: () => Promise.resolve(metas),
-          readSkill: (dir) => window.desktop.skillRead(dir),
-        },
-        isEnabled: (dir) => s.skills?.[dir] !== false,
-      })
-      if (skills.length) {
-        setUserSkills(skills)
-        setAiPanelKey((k) => k + 1) // remount AiPanel so the loop picks up the new skills
-      }
+      await reloadSkills(s)
     })
-  }, [])
+  }, [reloadSkills])
 
   useEffect(() => {
     localStorage.setItem('aidocs.showAi', showAi ? '1' : '0')
@@ -2960,6 +2965,7 @@ export function App() {
       {showAiSettings && (
         <AiSettingsModal
           settings={settings}
+          app="docs"
           t={t as (key: string, params?: Record<string, string | number>) => string}
           skills={skillMetas}
           onOpenSkillsDir={() => void window.desktop.skillOpenDir()}
@@ -3001,6 +3007,8 @@ export function App() {
           onSave={(next) => {
             setSettings(next)
             void window.desktop.setAiSettings(next)
+            // hot-reload skills so toggled flags take effect without a restart
+            void reloadSkills(next)
           }}
           onClose={() => setShowAiSettings(false)}
         />

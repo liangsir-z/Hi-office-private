@@ -98,8 +98,8 @@ describe('stream timeouts end to end', () => {
     )
     const { cb } = collector()
     const run = streamForProvider(
-      'anthropic',
-      { apiKey: 'k', model: 'claude-sonnet-5' },
+      'deepseek',
+      { apiKey: 'k', model: 'deepseek-chat' },
       'system',
       [{ role: 'user', text: 'hi' }],
       [],
@@ -121,7 +121,7 @@ describe('stream timeouts end to end', () => {
           start(controller) {
             controller.enqueue(
               encoder.encode(
-                'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}\n',
+                'data: {"choices":[{"delta":{"content":"hi"}}]}\n',
               ),
             )
             // stays open forever; reads reject once the watchdog aborts
@@ -133,8 +133,8 @@ describe('stream timeouts end to end', () => {
     )
     const { deltas, cb } = collector()
     const run = streamForProvider(
-      'anthropic',
-      { apiKey: 'k', model: 'claude-sonnet-5' },
+      'deepseek',
+      { apiKey: 'k', model: 'deepseek-chat' },
       'system',
       [{ role: 'user', text: 'hi' }],
       [],
@@ -163,8 +163,8 @@ describe('stream timeouts end to end', () => {
     )
     const onActivity = vi.fn()
     const run = streamForProvider(
-      'anthropic',
-      { apiKey: 'k', model: 'claude-sonnet-5' },
+      'deepseek',
+      { apiKey: 'k', model: 'deepseek-chat' },
       'system',
       [{ role: 'user', text: 'hi' }],
       [],

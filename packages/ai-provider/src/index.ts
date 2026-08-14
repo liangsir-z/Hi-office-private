@@ -11,7 +11,13 @@ export type {
   ImageGenProvider,
   LegacyAiSettings,
 } from './types'
-export { AI_PROVIDERS, defaultAiSettings, providerSupportsVision, resolveAiSettings } from './providers'
+export {
+  AI_PROVIDERS,
+  defaultAiSettings,
+  PROVIDER_BASE_URLS,
+  providerSupportsVision,
+  resolveAiSettings,
+} from './providers'
 export {
   decodeSettingsSecrets,
   encodeSettingsSecrets,

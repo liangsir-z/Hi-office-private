@@ -1,7 +1,7 @@
 import type { AgentMessage, AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
 import { httpBodyDetail } from './http-error'
 import type { AiProviderConfig, AiProviderId } from './types'
-import { providerSupportsVision } from './providers'
+import { providerSupportsVision, PROVIDER_BASE_URLS } from './providers'
 import { createStreamWatchdog, type StreamWatchdog } from './watchdog'
 
 // ---- streaming (SSE line splitting shared by all providers) ----
@@ -157,446 +157,7 @@ function parseToolInput(json: string): { input: Record<string, unknown>; error?:
   }
 }
 
-// ---- Anthropic ----
-
-function anthropicMessages(messages: AgentMessage[]): unknown[] {
-  return messages.map((m) => {
-    if (m.role === 'user') {
-      // Keep plain-text content as a string; only upgrade to a content block array when images are present
-      if (!m.images?.length) return { role: 'user', content: m.text }
-      return {
-        role: 'user',
-        content: [
-          ...(m.text ? [{ type: 'text', text: m.text }] : []),
-          ...m.images.map((img) => ({
-            type: 'image',
-            source: { type: 'base64', media_type: img.mime, data: img.base64 },
-          })),
-        ],
-      }
-    }
-    if (m.role === 'assistant') {
-      const content: unknown[] = []
-      if (m.text) content.push({ type: 'text', text: m.text })
-      for (const call of m.toolCalls ?? []) {
-        content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
-      }
-      // Anthropic rejects empty content arrays; a prior empty terminal turn
-      // (tool work with no prose) would otherwise poison every follow-up.
-      if (content.length === 0) content.push({ type: 'text', text: '(no content)' })
-      return { role: 'assistant', content }
-    }
-    // tool results travel back as a user message of tool_result blocks
-    return {
-      role: 'user',
-      content: m.results.map((r) => ({
-        type: 'tool_result',
-        tool_use_id: r.id,
-        content: r.output,
-        ...(r.isError ? { is_error: true } : {}),
-      })),
-    }
-  })
-}
-
-/** Emits a complete (non-streamed) Anthropic message delivered as a plain JSON body. */
-function emitAnthropicJsonMessage(bodyText: string, cb: StreamCallbacks): void {
-  let msg: {
-    content?: Array<{
-      type?: string
-      text?: string
-      id?: string
-      name?: string
-      input?: Record<string, unknown>
-    }>
-    stop_reason?: string
-    error?: { message?: string } | string
-  }
-  try {
-    msg = JSON.parse(bodyText) as typeof msg
-  } catch {
-    throw new Error(`Claude returned an unparseable JSON body: ${httpBodyDetail(bodyText)}`)
-  }
-  if (msg.error) throw new Error(sseErrorText(msg.error, 'Claude error'))
-  let emitted = false
-  const toolCalls: AgentToolCall[] = []
-  for (const block of msg.content ?? []) {
-    if (block.type === 'text' && block.text) {
-      emitted = true
-      cb.onDelta(block.text)
-    } else if (block.type === 'tool_use' && block.name) {
-      emitted = true
-      toolCalls.push({
-        id: block.id ?? crypto.randomUUID(),
-        name: block.name,
-        input: block.input ?? {},
-      })
-    }
-  }
-  // a max_tokens stop may have cut off the last tool call's arguments
-  const lastTool = toolCalls.at(-1)
-  if (msg.stop_reason === 'max_tokens' && lastTool) lastTool.truncated = true
-  for (const call of toolCalls) cb.onToolCall(call)
-  if (!emitted) throw new Error(`Claude returned no content: ${httpBodyDetail(bodyText)}`)
-  if (msg.stop_reason) cb.onStopReason?.(msg.stop_reason)
-}
-
-export async function streamAnthropic(
-  config: AiProviderConfig,
-  system: string,
-  messages: AgentMessage[],
-  tools: AgentToolDef[],
-  maxTokens: number,
-  cb: StreamCallbacks,
-  baseUrl = 'https://api.anthropic.com',
-): Promise<void> {
-  const wd = createStreamWatchdog(cb.signal)
-  return wd.guard(() => anthropicTurn(config, system, messages, tools, maxTokens, cb, baseUrl, wd))
-}
-
-async function anthropicTurn(
-  config: AiProviderConfig,
-  system: string,
-  messages: AgentMessage[],
-  tools: AgentToolDef[],
-  maxTokens: number,
-  cb: StreamCallbacks,
-  baseUrl: string,
-  wd: StreamWatchdog,
-): Promise<void> {
-  const onBytes = () => {
-    wd.touch()
-    cb.onActivity?.()
-  }
-  let response: Response
-  try {
-    response = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
-      method: 'POST',
-      signal: wd.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01',
-        // Fetch in the Electron main process goes through Chromium's network stack, which adds
-        // browser-semantics headers; Anthropic rejects those with 403 "Request not allowed". This
-        // header is the official opt-in for direct access from browser/Electron environments.
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: maxTokens,
-        system,
-        messages: anthropicMessages(messages),
-        ...(tools.length > 0
-          ? {
-              tools: tools.map((t) => ({
-                name: t.name,
-                description: t.description,
-                input_schema: t.inputSchema,
-              })),
-            }
-          : {}),
-        stream: true,
-      }),
-    })
-  } catch (e) {
-    // When fetch fails in the Electron main process, the real reason lives in `cause`
-    const err = e as { message?: unknown; cause?: { code?: unknown; message?: unknown } } | null
-    const causeText = err?.cause
-      ? ` cause=${String(err.cause.code || err.cause.message || err.cause)}`
-      : ''
-    throw new Error(`Claude fetch failed: ${err?.message || String(e)}${causeText}`, { cause: e })
-  }
-  // headers arrived: ping the renderer watchdog too, or a slow first chunk could trip it
-  onBytes()
-  if (!response.ok || !response.body) {
-    throw new Error(`Claude HTTP ${response.status}: ${httpBodyDetail(await response.text())}`)
-  }
-  const jsonBody = await jsonBodyInsteadOfSse(response)
-  if (jsonBody !== null) {
-    throwIfCreditsNotice(jsonBody)
-    return emitAnthropicJsonMessage(jsonBody, cb)
-  }
-  // tool_use inputs stream as partial JSON per content block
-  const pendingTools = new Map<number, { id: string; name: string; json: string }>()
-  // emission deferred to stream end: message_delta's stop_reason arrives after all
-  // blocks, and a max_tokens stop must mark the last (cut-off) tool call as truncated
-  const completedTools: AgentToolCall[] = []
-  let stopReason: string | undefined
-  let emitted = false
-  for await (const line of sseLines(response.body, onBytes)) {
-    if (!line.startsWith('data:')) continue
-    const payload = line.slice(5).trim()
-    if (!payload) continue
-    const event = JSON.parse(payload) as {
-      type?: string
-      index?: number
-      content_block?: { type?: string; id?: string; name?: string }
-      delta?: { type?: string; text?: string; partial_json?: string; stop_reason?: string }
-      error?: { message?: string } | string
-    }
-    if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
-      pendingTools.set(event.index ?? 0, {
-        id: event.content_block.id ?? crypto.randomUUID(),
-        name: event.content_block.name ?? '',
-        json: '',
-      })
-    } else if (event.type === 'content_block_delta') {
-      if (event.delta?.type === 'text_delta' && event.delta.text) {
-        emitted = true
-        cb.onDelta(event.delta.text)
-      } else if (event.delta?.type === 'input_json_delta') {
-        const pending = pendingTools.get(event.index ?? 0)
-        if (pending) pending.json += event.delta.partial_json ?? ''
-      }
-    } else if (event.type === 'content_block_stop') {
-      const pending = pendingTools.get(event.index ?? 0)
-      if (pending) {
-        pendingTools.delete(event.index ?? 0)
-        const { input, error } = parseToolInput(pending.json)
-        completedTools.push({ id: pending.id, name: pending.name, input, inputError: error })
-      }
-    } else if (event.type === 'message_delta') {
-      if (event.delta?.stop_reason) stopReason = event.delta.stop_reason
-    } else if (event.type === 'error' || event.error) {
-      // also catches gateway errors delivered in a non-Anthropic shape (no `type` field)
-      throw new Error(sseErrorText(event.error, 'Claude stream error'))
-    }
-  }
-  const lastTool = completedTools.at(-1)
-  if (stopReason === 'max_tokens' && lastTool) lastTool.truncated = true
-  for (const call of completedTools) cb.onToolCall(call)
-  // A stream with no content AND no message framing (no stop_reason ever seen)
-  // is a gateway soft-failure, not a model turn — surface it instead of letting
-  // it dissolve into an empty "successful" turn with no diagnostics. A genuine
-  // empty closing turn (common after tool-heavy runs) still carries end_turn.
-  // The "(empty stream)" suffix is a contract: app renderers match it to
-  // classify the failure as empty output (fail fast, no billed retries).
-  if (!emitted && completedTools.length === 0 && !stopReason) {
-    throw new Error('Claude returned no content (empty stream)')
-  }
-  if (stopReason) cb.onStopReason?.(stopReason)
-}
-
-// ---- Gemini ----
-
-function geminiContents(messages: AgentMessage[]): unknown[] {
-  return messages.map((m) => {
-    if (m.role === 'user') {
-      if (!m.images?.length) return { role: 'user', parts: [{ text: m.text }] }
-      return {
-        role: 'user',
-        parts: [
-          ...(m.text ? [{ text: m.text }] : []),
-          ...m.images.map((img) => ({ inline_data: { mime_type: img.mime, data: img.base64 } })),
-        ],
-      }
-    }
-    if (m.role === 'assistant') {
-      const parts: unknown[] = []
-      if (m.text) parts.push({ text: m.text })
-      for (const call of m.toolCalls ?? []) {
-        parts.push({ functionCall: { name: call.name, args: call.input } })
-      }
-      // Gemini rejects model turns with empty parts lists.
-      if (parts.length === 0) parts.push({ text: '(no content)' })
-      return { role: 'model', parts }
-    }
-    return {
-      role: 'user',
-      parts: m.results.map((r) => ({
-        functionResponse: {
-          name: r.name,
-          response: r.isError ? { error: r.output } : { result: r.output },
-        },
-      })),
-    }
-  })
-}
-
-/**
- * Emits a complete (non-streamed) Gemini response delivered as a plain JSON body.
- * `streamGenerateContent` without SSE framing yields an array of chunks; a gateway
- * may also send a single `generateContent`-shaped object — handle both.
- */
-function emitGeminiJsonMessage(bodyText: string, cb: StreamCallbacks): void {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(bodyText)
-  } catch {
-    throw new Error(`Gemini returned an unparseable JSON body: ${httpBodyDetail(bodyText)}`)
-  }
-  const events = (Array.isArray(parsed) ? parsed : [parsed]) as Array<{
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{
-          text?: string
-          functionCall?: { name?: string; args?: Record<string, unknown> }
-        }>
-      }
-      finishReason?: string
-    }>
-    promptFeedback?: { blockReason?: string }
-    error?: { message?: string } | string
-  }>
-  let emitted = false
-  let stopReason: string | undefined
-  let abnormalFinish: string | undefined
-  for (const event of events) {
-    if (event.error) throw new Error(sseErrorText(event.error, 'Gemini error'))
-    if (event.promptFeedback?.blockReason) {
-      throw new Error(`Gemini blocked the prompt (${event.promptFeedback.blockReason})`)
-    }
-    const finishReason = event.candidates?.[0]?.finishReason
-    if (finishReason === 'MAX_TOKENS') stopReason = 'max_tokens'
-    else if (finishReason && finishReason !== 'STOP') abnormalFinish = finishReason
-    for (const part of event.candidates?.[0]?.content?.parts ?? []) {
-      if (part.text) {
-        emitted = true
-        cb.onDelta(part.text)
-      }
-      if (part.functionCall?.name) {
-        emitted = true
-        cb.onToolCall({
-          id: crypto.randomUUID(),
-          name: part.functionCall.name,
-          input: part.functionCall.args ?? {},
-        })
-      }
-    }
-  }
-  if (!emitted) {
-    throw new Error(
-      abnormalFinish
-        ? `Gemini returned no content (finishReason=${abnormalFinish})`
-        : `Gemini returned no content: ${httpBodyDetail(bodyText)}`,
-    )
-  }
-  if (stopReason) cb.onStopReason?.(stopReason)
-}
-
-export async function streamGemini(
-  config: AiProviderConfig,
-  system: string,
-  messages: AgentMessage[],
-  tools: AgentToolDef[],
-  maxTokens: number,
-  cb: StreamCallbacks,
-  baseUrl = 'https://generativelanguage.googleapis.com/v1beta',
-): Promise<void> {
-  const wd = createStreamWatchdog(cb.signal)
-  return wd.guard(() => geminiTurn(config, system, messages, tools, maxTokens, cb, baseUrl, wd))
-}
-
-async function geminiTurn(
-  config: AiProviderConfig,
-  system: string,
-  messages: AgentMessage[],
-  tools: AgentToolDef[],
-  maxTokens: number,
-  cb: StreamCallbacks,
-  baseUrl: string,
-  wd: StreamWatchdog,
-): Promise<void> {
-  const onBytes = () => {
-    wd.touch()
-    cb.onActivity?.()
-  }
-  const url = `${baseUrl.replace(/\/$/, '')}/models/${config.model}:streamGenerateContent?alt=sse`
-  const response = await fetch(url, {
-    method: 'POST',
-    signal: wd.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': config.apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: geminiContents(messages),
-      ...(tools.length > 0
-        ? {
-            tools: [
-              {
-                functionDeclarations: tools.map((t) => ({
-                  name: t.name,
-                  description: t.description,
-                  parameters: t.inputSchema,
-                })),
-              },
-            ],
-          }
-        : {}),
-      generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
-    }),
-  })
-  // headers arrived: ping the renderer watchdog too, or a slow first chunk could trip it
-  onBytes()
-  if (!response.ok || !response.body) {
-    throw new Error(`Gemini HTTP ${response.status}: ${httpBodyDetail(await response.text())}`)
-  }
-  const jsonBody = await jsonBodyInsteadOfSse(response)
-  if (jsonBody !== null) {
-    throwIfCreditsNotice(jsonBody)
-    return emitGeminiJsonMessage(jsonBody, cb)
-  }
-  let stopReason: string | undefined
-  let abnormalFinish: string | undefined
-  let sawFinish = false
-  let emitted = false
-  for await (const line of sseLines(response.body, onBytes)) {
-    if (!line.startsWith('data:')) continue
-    const payload = line.slice(5).trim()
-    if (!payload) continue
-    const event = JSON.parse(payload) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
-            text?: string
-            functionCall?: { name?: string; args?: Record<string, unknown> }
-          }>
-        }
-        finishReason?: string
-      }>
-      promptFeedback?: { blockReason?: string }
-      error?: { message?: string } | string
-    }
-    if (event.error) throw new Error(sseErrorText(event.error, 'Gemini stream error'))
-    if (event.promptFeedback?.blockReason) {
-      throw new Error(`Gemini blocked the prompt (${event.promptFeedback.blockReason})`)
-    }
-    const finishReason = event.candidates?.[0]?.finishReason
-    if (finishReason) sawFinish = true
-    if (finishReason === 'MAX_TOKENS') stopReason = 'max_tokens'
-    else if (finishReason && finishReason !== 'STOP') abnormalFinish = finishReason
-    for (const part of event.candidates?.[0]?.content?.parts ?? []) {
-      if (part.text) {
-        emitted = true
-        cb.onDelta(part.text)
-      }
-      // Gemini emits function calls whole, never as partial JSON
-      if (part.functionCall?.name) {
-        emitted = true
-        cb.onToolCall({
-          id: crypto.randomUUID(),
-          name: part.functionCall.name,
-          input: part.functionCall.args ?? {},
-        })
-      }
-    }
-  }
-  // A safety/recitation stop that produced nothing, or a stream with no message
-  // framing at all (gateway soft-failure), would otherwise look like an empty
-  // success; a genuine empty turn still carries finishReason=STOP and passes
-  if (!emitted && abnormalFinish) {
-    throw new Error(`Gemini returned no content (finishReason=${abnormalFinish})`)
-  }
-  if (!emitted && !sawFinish) {
-    throw new Error('Gemini returned no content (empty stream)')
-  }
-  if (stopReason) cb.onStopReason?.(stopReason)
-}
-
-// ---- OpenAI-compatible (openai / deepseek / custom) ----
+// ---- OpenAI-compatible (every fixed provider + custom) ----
 
 function openAiMessages(system: string, messages: AgentMessage[], includeImages: boolean): unknown[] {
   const out: unknown[] = [{ role: 'system', content: system }]
@@ -835,11 +396,6 @@ async function openAiCompatibleTurn(
   if (stopReason) cb.onStopReason?.(stopReason)
 }
 
-const OPENAI_COMPATIBLE_BASE_URLS: Partial<Record<AiProviderId, string>> = {
-  deepseek: 'https://api.deepseek.com/v1',
-  openai: 'https://api.openai.com/v1',
-}
-
 /** route a streaming, tool-calling-capable turn by provider id */
 export async function streamForProvider(
   provider: AiProviderId,
@@ -850,37 +406,30 @@ export async function streamForProvider(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
-  switch (provider) {
-    case 'anthropic':
-      return streamAnthropic(config, system, messages, tools, maxTokens, cb)
-    case 'gemini':
-      return streamGemini(config, system, messages, tools, maxTokens, cb)
-    case 'deepseek':
-    case 'openai':
-      return streamOpenAiCompatible(
-        OPENAI_COMPATIBLE_BASE_URLS[provider]!,
-        config,
-        system,
-        messages,
-        tools,
-        maxTokens,
-        cb,
-        // text-only backends (deepseek-chat/reasoner) reject image_url parts with 400
-        providerSupportsVision(provider),
-      )
-    case 'custom':
-      if (!config.baseUrl) throw new Error('A custom provider requires a Base URL')
-      return streamOpenAiCompatible(
-        config.baseUrl,
-        config,
-        system,
-        messages,
-        tools,
-        maxTokens,
-        cb,
-        providerSupportsVision(provider),
-      )
-    default:
-      throw new Error(`Unknown provider: ${provider}`)
+  if (provider === 'custom') {
+    if (!config.baseUrl) throw new Error('A custom provider requires a Base URL')
+    return streamOpenAiCompatible(
+      config.baseUrl,
+      config,
+      system,
+      messages,
+      tools,
+      maxTokens,
+      cb,
+      providerSupportsVision(provider, config.model),
+    )
   }
+  const baseUrl = PROVIDER_BASE_URLS[provider]
+  if (!baseUrl) throw new Error(`Unknown provider: ${provider}`)
+  return streamOpenAiCompatible(
+    baseUrl,
+    config,
+    system,
+    messages,
+    tools,
+    maxTokens,
+    cb,
+    // text-only models (deepseek, non-vl qwen, ...) reject image_url parts with 400
+    providerSupportsVision(provider, config.model),
+  )
 }
