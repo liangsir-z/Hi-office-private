@@ -35,8 +35,8 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
     id: 'zhipu',
     label: '智谱 GLM',
     visionModels: /glm-[\d.]*v/i,
-    models: ['glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4v-plus', 'glm-4v-flash'],
-    defaultModel: 'glm-4-flash',
+    models: ['glm-4.5-flash', 'glm-4v-flash', 'glm-4-plus', 'glm-4-air', 'glm-4-flash', 'glm-4v-plus'],
+    defaultModel: 'glm-4.5-flash',
     keyPlaceholder: '....',
   },
   {
