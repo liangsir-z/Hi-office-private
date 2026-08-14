@@ -8,6 +8,7 @@ import type {
 } from '@genoffice/pptx-render'
 import type { AddSmartArtOp, AgentToolCall, AgentToolDef, EditParagraph } from '../../shared/ipc'
 import { auditSlideLayout, formatAudit } from './layout-audit'
+import { parsePagePlan, renderPagePlan } from './page-rebuild'
 import { runLayoutScript, type LayoutScriptElement, type SlideStylePatch } from './layout-script'
 import { t } from '../i18n/locale'
 
@@ -98,6 +99,8 @@ export interface DeckAccess {
     slideIndex: number,
     html: string,
   ): Promise<{ ok: boolean; error?: string; imageFailures?: { page: number; url: string }[] }>
+  /** Pages rebuilt by the local page-rebuild renderer; lets the panel queue them for the QC pass. */
+  onPagesRebuilt?(slideIndexes: number[]): void
   /** Survey: shows a card with options and waits for the user's choices, returning an answer summary. */
   askClarification?(questions: ClarifyQuestion[]): Promise<{ answers: string; cancelled?: boolean }>
   /**
@@ -188,7 +191,7 @@ const AGENT_SYSTEM_PROMPT = `You are the AI assistant inside Hi-office Slides (a
 ## Most important tool-selection principles (judge the scenario before acting)
 - **Creating a whole new deck (from scratch)** → first gather material (web_search) and images (image_search), then call **generate_deck**. With many pages, prefer **passing topic + approx_pages + context (the real material you found)** and let the system plan internally + generate page by page + display page by page (**you don't hand-write dozens of pages, and no pages get missed / arguments truncated**). For few pages where you already know each page, you may pass core_hook+style+pages directly.
 - **Adding 1 page or a few pages to an existing deck** → generate_deck(pages: briefs for just the new pages, insert_mode:"append"). Write each page's brief in detail (real content/data per region + layout); first look at the existing pages (get_deck_context) and pass a style description matching them so new pages stay consistent. **Even a single new page goes through this cloud generation; don't fall back to native tools and build a crude page**.
-- **Redoing / redesigning an existing page** (user says "redo this page / redesign it / try another layout / make it prettier") → **regenerate_slide**: first read_slide to get the page's original copy, then pass a detailed brief (copy the text/data to keep into the brief verbatim, state what to change and the target layout); the cloud service regenerates the page in place (other pages untouched). Don't dismantle and rebuild the whole page element by element with native tools.
+- **Redoing / redesigning an existing page** (user says "redo this page / redesign it / try another layout / make it prettier") → **regenerate_slide**: first read_slide to get the page's original copy, then pass a structured plan (variant + the text/data to keep verbatim + the deck's palette); the renderer rebuilds the page in place with professional fixed layouts (other pages untouched). Don't dismantle and rebuild the whole page element by element with native tools.
 - **Deleting a page** → delete_slide(slideIndex).
 - **Modifying / fine-tuning existing elements** (position/size/alignment/distribution/relative nudges/text/style/fill/stroke, one or many elements) → always prefer **execute_slide_script** and do it in one script (see "Editing existing elements" below; read-write combined, no read_slide first). Don't blind-fire individual set_element_* calls. Add/delete elements with add_* / delete_element; redo a whole page with regenerate_slide.
 - **Elements inside a group**: direct children of a top-level group (marked "in group <id>" / els groupId) are edited exactly like normal elements — same script primitives and set_element_* tools, absolute coordinates. Only elements nested in a sub-group are read-only: call ungroup_element on the outer group first (ids on the page change afterwards; the result returns the fresh list). To delete a single group member, ungroup first too.
@@ -232,7 +235,7 @@ Step E Vary layouts per page (avoid sameness): 3 parallel points→three-column 
 - **generate_deck is the first choice for a whole new deck**: with many pages pass topic+approx_pages+context; the system plans internally (auto-batching over the threshold), **auto-searches images**, writes HTML page by page, and **lands pages onto the canvas as they generate (the user sees them one by one)**. **Neither "only page 1 got generated" nor "arguments were truncated" can happen — the page count is guaranteed by the system loop**.
 - **When adding just 1 page or a few pages (common case)**: also use generate_deck with **pages (briefs for only the new pages) + insert_mode:"append"** (appended at the end, existing pages untouched). **New pages also go through the cloud generation for polish — don't fall back to native tools for a crude page just because it's one page**. Before adding, read_slide/get_deck_context to see the existing pages' style (primary color/layout) and pass a matching style description; write each brief with the real content per region.
 - Briefs should be concrete: what text/data/numbers go in each region, which image goes where, and the layout name — the cloud designer follows your brief; vague briefs produce generic pages.
-- After generation, if the user wants a tweak, edit the corresponding element with the native tools below; don't redo whole pages unprompted "to look better". Use regenerate_slide only when the user explicitly asks to redo a page.
+- After generation, if the user wants a tweak, edit the corresponding element with the native tools below; don't redo whole pages unprompted "to look better". Use regenerate_slide only when the user explicitly asks to redo a page (a beautify/redesign preset counts as explicit).
 
 Native tools (only for modifying/refining existing pages, not for generating from scratch):
 - add_slide clones a layout into a new page (layout-preserving blank page); add_text_box lays out text; add_shape makes color blocks/accent bars (kind supports any OOXML preset geometry rect/roundRect/ellipse/star5…).
@@ -630,36 +633,76 @@ const TOOLS: AgentToolDef[] = [
   {
     name: 'regenerate_slide',
     description:
-      '[Redo/redesign an existing page] The cloud service regenerates the page from your brief and replaces it in place (other pages untouched, undoable).' +
-      ' Use when the user says "redo this page / redesign it / try another layout / make it prettier"; don\'t dismantle the page element by element with native tools.' +
-      " Flow: first read_slide to get the page's current content, then check neighboring pages / get_deck_context to grasp the deck's style;" +
-      ' write a detailed brief — what to keep (copy real text/data into the brief verbatim), what to change, and the target layout; the deck style is applied automatically.' +
-      ' If the page needs images, image_search first and pass real URLs in image_urls.' +
-      ' If cloud generation fails, it is usually a temporary service error: do NOT loop retrying — make the concrete changes in place with execute_slide_script instead (or tell the user to try again in a few minutes).',
+      '[Redo/redesign an existing page] Rebuilds the page in place from your structured plan with professional fixed layouts (other pages untouched, undoable).' +
+      ' Use when the user says "redo this page / redesign it / try another layout / make it prettier" — and prefer it over hand-nudging many elements when a page needs a real visual upgrade.' +
+      " Flow: read_slide first, then compose the plan — keep the page's real copy/data verbatim in the plan, pick the variant that fits the content, and reuse the deck's palette (accent/background/textColor from the page or deck context)." +
+      ' The renderer places everything on a clean grid; verify with read_slide afterwards and fine-tune with execute_slide_script if needed.' +
+      ' For left_text_right_image / cover_split_color pass a real http(s) imageUrl (image_search first).',
     inputSchema: {
       type: 'object',
       properties: {
         slideIndex: { type: 'integer', description: 'Page to redo (0-based)' },
-        brief: {
-          type: 'string',
+        plan: {
+          type: 'object',
           description:
-            'Content and layout brief for the new page: what goes in each region (copy the real copy/data to keep into the brief), and the layout to use (e.g. three_column_cards/hero_big_number/two_column/timeline).',
-        },
-        title: { type: 'string', description: 'Page title' },
-        layout: { type: 'string', description: 'Layout intent name (optional)' },
-        image_urls: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Real http(s) image URLs for this page (image_search first; [] for none)',
-        },
-        dataSource: {
-          type: 'string',
-          enum: ['user', 'document', 'search', 'sample'],
-          description:
-            "Required when the brief carries specific figures (%, money, magnitudes): where they came from — 'user'/'document'/'search' (run web_search first)/'sample' (disclose to the user)",
+            'Structured redesign plan. Keep the page\'s real copy verbatim; pick one variant; reuse the deck palette where possible.',
+          properties: {
+            variant: {
+              type: 'string',
+              enum: [
+                'cover_typography_hero',
+                'cover_split_color',
+                'three_column_cards',
+                'hero_big_number',
+                'two_column_comparison',
+                'left_text_right_image',
+                'kpi_cards_row',
+              ],
+              description:
+                'cover pages → cover_typography_hero (pure typography) or cover_split_color (accent panel + image right); 3 parallel points → three_column_cards; one key metric → hero_big_number; pros/cons or before/after → two_column_comparison; text + visual → left_text_right_image; several metrics → kpi_cards_row',
+            },
+            title: { type: 'string', description: 'Page title (verbatim or improved)' },
+            subtitle: { type: 'string', description: 'Optional subtitle/supporting line' },
+            accent: { type: 'string', description: '#RRGGBB accent color' },
+            background: { type: 'string', description: '#RRGGBB page background' },
+            textColor: { type: 'string', description: '#RRGGBB main text color (contrast with background)' },
+            cardColor: { type: 'string', description: '#RRGGBB card/panel fill (optional)' },
+            cards: {
+              type: 'array',
+              description: 'three_column_cards (3) / two_column_comparison (2): heading + body per column',
+              items: {
+                type: 'object',
+                properties: {
+                  heading: { type: 'string' },
+                  body: { type: 'string' },
+                },
+                required: ['heading', 'body'],
+              },
+            },
+            number: { type: 'string', description: 'hero_big_number: the key figure (e.g. "87%")' },
+            numberLabel: { type: 'string', description: 'hero_big_number: what the figure measures' },
+            body: { type: 'string', description: 'hero_big_number: supporting paragraph' },
+            bullets: {
+              type: 'array',
+              description: 'left_text_right_image: left-side bullet lines',
+              items: { type: 'string' },
+            },
+            kpis: {
+              type: 'array',
+              description: 'kpi_cards_row (2-4): value + label per metric',
+              items: {
+                type: 'object',
+                properties: { value: { type: 'string' }, label: { type: 'string' } },
+                required: ['value', 'label'],
+              },
+            },
+            imageUrl: { type: 'string', description: 'Real http(s) image URL (image_search first)' },
+            footer: { type: 'string', description: 'Optional small footer line' },
+          },
+          required: ['variant', 'title', 'accent', 'background', 'textColor'],
         },
       },
-      required: ['slideIndex', 'brief'],
+      required: ['slideIndex', 'plan'],
     },
   },
   {
@@ -2120,12 +2163,23 @@ async function executeTool(
       const idx = Number(call.input.slideIndex)
       if (!slides[idx])
         return fail(t('aiFailRegen'), `slideIndex out of range (0-${slides.length - 1})`)
-      // [BYOK] Cloud-based page regeneration was a Hi-office-only feature and is
-      // disabled in this build. Steer the model toward in-place editing tools.
-      return fail(
-        t('aiFailRegen'),
-        'Whole-page regeneration is unavailable in this build. Make the requested changes in place with execute_slide_script / set_element_* (group children are editable too).',
-      )
+      // Local template-based redesign: the model supplies a structured plan
+      // (variant + verbatim content + palette) and the deterministic renderer
+      // rebuilds the page with native elements (replaces the removed cloud service).
+      const parsed = parsePagePlan(call.input.plan)
+      if (!parsed.ok) {
+        return fail(
+          t('aiFailRegen'),
+          `Invalid plan: ${parsed.error}. Compose the plan per the regenerate_slide schema (keep the page's real copy verbatim) and retry.`,
+        )
+      }
+      const built = await renderPagePlan(access, idx, parsed.plan)
+      if (!built.ok) return fail(t('aiFailRegen'), built.error ?? 'rebuild failed')
+      return {
+        output: `Page ${idx + 1} was rebuilt with the "${parsed.plan.variant}" layout. Call read_slide to verify, then fine-tune with execute_slide_script if needed.`,
+        mutated: true,
+        summary: t('aiSumRegenPage', { n: idx + 1 }),
+      }
     }
 
     case 'delete_slide': {

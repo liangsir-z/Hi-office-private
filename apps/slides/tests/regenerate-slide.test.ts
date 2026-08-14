@@ -33,21 +33,60 @@ beforeEach(() => {
 })
 
 describe('regenerate_slide', () => {
-  // [BYOK] Whole-page cloud regeneration was a Hi-office-only feature and is disabled
-  // in this build; the tool returns a neutral "unavailable" error steering the model
-  // toward in-place editing tools.
-  it('returns a neutral unavailable error (cloud regeneration is disabled)', async () => {
+  // Local template-based redesign replaced the removed cloud service: the tool
+  // validates the structured plan and rebuilds the page with native elements.
+  it('rejects an invalid plan with guidance', async () => {
     const skill = createSlidesSkill(mkAccess([page, page]))
     const r = await skill.executeTool!(
-      call('regenerate_slide', { slideIndex: 1, brief: 'Redo as three-column cards' }),
+      call('regenerate_slide', { slideIndex: 1, plan: { variant: 'nope', title: 'x' } }),
     )
     expect(r.isError).toBe(true)
-    expect(r.output).toContain('unavailable')
+    expect(r.output).toContain('Invalid plan')
+  })
+
+  it('rebuilds the page from a valid plan via native add ops', async () => {
+    const addElement = vi.fn(async () => ({
+      slide: page,
+      sourceId: `e${Math.random()}`,
+    }))
+    const onPagesRebuilt = vi.fn()
+    ;(window as any).slidesApi = {
+      deleteSlide: vi.fn(async () => [page, page]),
+      deleteElement: vi.fn(async () => page),
+      addElement,
+      insertImageUrl: vi.fn(async () => ({ slide: page, sourceId: 'img1' })),
+    }
+    const access = mkAccess([page, page], { onPagesRebuilt })
+    const r = await createSlidesSkill(access).executeTool!(
+      call('regenerate_slide', {
+        slideIndex: 1,
+        plan: {
+          variant: 'three_column_cards',
+          title: '季度复盘',
+          accent: '#2563EB',
+          background: '#FFFFFF',
+          textColor: '#1F2937',
+          cards: [
+            { heading: '营收', body: '同比 +23%' },
+            { heading: '留存', body: '月留存 87%' },
+            { heading: 'NPS', body: '41 → 58' },
+          ],
+        },
+      }),
+    )
+    expect(r.isError).toBeUndefined()
+    expect(r.mutated).toBe(true)
+    expect(r.output).toContain('three_column_cards')
+    // background + title + underline + 3× (card + strip + heading + body)
+    expect(addElement.mock.calls.length).toBeGreaterThanOrEqual(13)
+    expect(onPagesRebuilt).toHaveBeenCalledWith([1])
   })
 
   it('slideIndex out of range → errors', async () => {
     const skill = createSlidesSkill(mkAccess([page]))
-    const r = await skill.executeTool!(call('regenerate_slide', { slideIndex: 3, brief: 'x' }))
+    const r = await skill.executeTool!(
+      call('regenerate_slide', { slideIndex: 3, plan: { variant: 'kpi_cards_row', title: 'x' } }),
+    )
     expect(r.isError).toBe(true)
   })
 })
