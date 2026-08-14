@@ -10,7 +10,17 @@ import {
 } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, stat, unlink } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { BrowserWindow, Menu, WebContentsView, app, dialog, ipcMain, safeStorage, shell } from 'electron'
+import {
+  BrowserWindow,
+  Menu,
+  WebContentsView,
+  app,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+  webContents,
+} from 'electron'
 import {
   appMenuLabels,
   contextMenuLabels,
@@ -2449,6 +2459,11 @@ export function registerAiIpc(): void {
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
     writeJson(SETTINGS_PATH(), encodeSettingsSecrets(settings, secretCodec))
+    // already-open editor views load settings once at mount; without this
+    // broadcast they keep hitting the previous provider until a restart
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send('ai:settings-changed', settings)
+    }
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {

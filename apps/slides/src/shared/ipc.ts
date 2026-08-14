@@ -1269,6 +1269,8 @@ export interface SlidesApi {
   onRenamed: (handler: (newPath: string) => void) => () => void
   getAiSettings: () => Promise<AiSettings>
   setAiSettings: (settings: AiSettings) => Promise<void>
+  /** live settings updates pushed after any window saves (provider switches take effect immediately) */
+  onAiSettingsChanged: (handler: (settings: AiSettings) => void) => () => void
   skillList: () => Promise<SkillMeta[]>
   skillRead: (dir: string) => Promise<SkillFiles | null>
   skillDir: () => Promise<string>

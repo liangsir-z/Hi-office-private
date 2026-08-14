@@ -25,6 +25,7 @@ import {
   shell,
   systemPreferences,
   WebContentsView,
+  webContents,
 } from 'electron'
 import type {
   IpcMainInvokeEvent,
@@ -2082,6 +2083,10 @@ export function registerSheetsAiIpc(): void {
     sessionFor(event)
     const settings = aiSettingsInputSchema.parse(input)
     writeJson(SETTINGS_PATH(), encodeSettingsSecrets(settings, secretCodec))
+    // open editor views load settings once at mount; keep them live
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send('ai:settings-changed', settings)
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.aiChat, async (event, input: unknown) => {

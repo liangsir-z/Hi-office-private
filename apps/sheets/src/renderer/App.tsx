@@ -1078,6 +1078,11 @@ export function App(): React.JSX.Element {
       setAiSettingsState(s)
       await reloadSkills(s)
     })
+    // provider/model switches saved in any window take effect immediately
+    return window.desktopApi.onAiSettingsChanged((next) => {
+      setAiSettingsState(next)
+      void reloadSkills(next)
+    })
   }, [reloadSkills])
 
   useEffect(() => {

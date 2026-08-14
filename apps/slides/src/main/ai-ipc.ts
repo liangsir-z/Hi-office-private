@@ -4,7 +4,7 @@
  * to avoid renderer CORS), search tools, and the slides-only ai:* channels
  * (image generation, media analysis, style templates).
  */
-import { app, ipcMain, safeStorage, shell } from 'electron'
+import { app, ipcMain, safeStorage, shell, webContents } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -63,6 +63,10 @@ export function registerAiIpc(): void {
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
     writeJson(AI_SETTINGS_PATH(), encodeSettingsSecrets(settings, secretCodec))
+    // open editor views load settings once at mount; keep them live
+    for (const wc of webContents.getAllWebContents()) {
+      if (!wc.isDestroyed()) wc.send('ai:settings-changed', settings)
+    }
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {

@@ -256,6 +256,11 @@ const api: SlidesApi = {
   },
   getAiSettings: () => ipcRenderer.invoke('ai:get-settings'),
   setAiSettings: (settings: AiSettings) => ipcRenderer.invoke('ai:set-settings', settings),
+  onAiSettingsChanged: (handler: (settings: AiSettings) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, settings: AiSettings) => handler(settings)
+    ipcRenderer.on('ai:settings-changed', listener)
+    return () => ipcRenderer.removeListener('ai:settings-changed', listener)
+  },
   skillList: () => ipcRenderer.invoke('skill:list'),
   skillRead: (dir: string) => ipcRenderer.invoke('skill:read', dir),
   skillDir: () => ipcRenderer.invoke('skill:dir'),

@@ -851,6 +851,11 @@ export function App() {
       void window.slidesApi.templateList().then(setTemplates)
       await reloadSkills(s)
     })
+    // provider/model switches saved in any window take effect immediately
+    return window.slidesApi.onAiSettingsChanged((next) => {
+      setAiSettings(next)
+      void reloadSkills(next)
+    })
   }, [reloadSkills])
 
   // [templates] pre-resolve template payloads so the design gallery can render swatches

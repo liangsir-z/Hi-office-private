@@ -245,6 +245,11 @@ const desktopApi: DesktopApi = {
     if (!isRecord(result)) throw new Error('Invalid AI settings response.')
     return result as unknown as AiSettings
   },
+  onAiSettingsChanged(handler) {
+    const listener = (_e: Electron.IpcRendererEvent, settings: AiSettings) => handler(settings)
+    ipcRenderer.on('ai:settings-changed', listener)
+    return () => ipcRenderer.removeListener('ai:settings-changed', listener)
+  },
   async setAiSettings(settings) {
     await ipcRenderer.invoke(IPC_CHANNELS.aiSetSettings, settings)
   },

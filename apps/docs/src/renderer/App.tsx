@@ -656,6 +656,12 @@ export function App() {
       setSettings(s)
       await reloadSkills(s)
     })
+    // provider/model switches saved in any window (global settings, another
+    // editor) take effect here immediately instead of on next launch
+    return window.desktop.onAiSettingsChanged((next) => {
+      setSettings(next)
+      void reloadSkills(next)
+    })
   }, [reloadSkills])
 
   useEffect(() => {
