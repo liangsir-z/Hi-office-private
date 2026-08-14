@@ -65,9 +65,25 @@ const HTML_DOM_WALKER = `(() => {
       const ownText = Array.from(child.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').replace(/\\s+/g, ' ').trim()
       if (ownText) {
         if (bg) out.elements.push({ kind: shapeKind(cs, r), ...round(r), fill: bg })
+        // ink box: the union of the actual glyph rects — keeps converted boxes
+        // tight around the text (flex-stretched elements would otherwise emit
+        // oversized boxes that trip the overlap audit), plus the visual line count
+        let box = round(r)
+        let lines = 1
+        try {
+          const range = document.createRange()
+          range.selectNodeContents(child)
+          const rects = Array.from(range.getClientRects()).filter((rr) => rr.width > 0 && rr.height > 0)
+          if (rects.length) {
+            let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
+            for (const rr of rects) { x1 = Math.min(x1, rr.x); y1 = Math.min(y1, rr.y); x2 = Math.max(x2, rr.x + rr.width); y2 = Math.max(y2, rr.y + rr.height) }
+            box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }
+            lines = new Set(rects.map((rr) => Math.round(rr.y / 4))).size || 1
+          }
+        } catch (e) { /* keep the element rect */ }
         const pt = Math.round((parseFloat(cs.fontSize) * 72 / 96) * 10) / 10
         out.elements.push({
-          kind: 'text', ...round(r), text: ownText.slice(0, 1200), pt,
+          kind: 'text', ...box, lines, text: ownText.slice(0, 1200), pt,
           bold: parseInt(cs.fontWeight, 10) >= 600,
           color: hex(cs.color) || '#000000',
           align: cs.textAlign === 'center' ? 'center' : (cs.textAlign === 'right' || cs.textAlign === 'end') ? 'right' : 'left',
@@ -106,6 +122,7 @@ interface HtmlWalkResult {
     src?: string
     naturalWidth?: number
     naturalHeight?: number
+    lines?: number
   }>
 }
 
@@ -335,7 +352,7 @@ export function registerSlidesOnlyAiIpc(): void {
         const emit = async (
           kind: string,
           r: { x: number; y: number; w: number; h: number },
-          opts: { fill?: string; paragraphs?: unknown[] } = {},
+          opts: { fill?: string; paragraphs?: unknown[]; text?: boolean } = {},
         ) => {
           addElement(slide, {
             kind,
@@ -347,6 +364,15 @@ export function registerSlidesOnlyAiIpc(): void {
             },
             ...(opts.fill ? { fillColor: opts.fill } : {}),
             ...(opts.paragraphs ? { paragraphs: opts.paragraphs as never } : {}),
+            ...(opts.text
+              ? {
+                  // DOM-faithful text boxes: no OOXML default insets (they were
+                  // the "mystery padding" that made every converted box overflow),
+                  // vertically centered for 1-2 line labels
+                  bodyInsets: { l: 0, t: 0, r: 0, b: 0 },
+                  bodyAnchor: 'ctr',
+                }
+              : {}),
           })
         }
         if (parsed.background) await emit('rect', { x: 0, y: 0, w: 1280, h: 720 }, { fill: parsed.background })
@@ -379,7 +405,11 @@ export function registerSlidesOnlyAiIpc(): void {
               imageFailures++
             }
           } else if (el.kind === 'text') {
-            await emit('textbox', el, {
+            // minimum height for the font so 1-2 line text never clips after
+            // the native font metrics replace the DOM's
+            const minH = ((el.pt ?? 14) / 0.75) * 1.4 * Math.min(el.lines ?? 1, 2)
+            await emit('textbox', { ...el, h: Math.max(el.h, minH) }, {
+              text: true,
               paragraphs: [
                 {
                   runs: [

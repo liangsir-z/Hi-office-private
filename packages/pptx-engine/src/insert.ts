@@ -30,6 +30,10 @@ export interface NewElementOptions {
   fillColor?: string
   /** Shape stroke (solid color, width in EMU) */
   stroke?: { color: string; widthEmu: number }
+  /** Textbox body insets in EMU (OOXML defaults: l/r 91440, t/b 45720). Zero them for tight, DOM-faithful text boxes. */
+  bodyInsets?: { l?: number; t?: number; r?: number; b?: number }
+  /** Textbox vertical anchor (OOXML t/ctr/b); unset keeps the default top */
+  bodyAnchor?: 't' | 'ctr' | 'b'
 }
 
 let insertCounter = 1
@@ -112,11 +116,21 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
   const paras = (opts.paragraphs?.length ? opts.paragraphs : [{ runs: [{ text: '' }] }])
     .map((p) => generateParagraphXml(p))
     .join('')
+  const ins = (name: string, v: number | undefined) =>
+    v !== undefined ? ` ${name}="${Math.round(v)}"` : ''
+  const bodyPr =
+    `<a:bodyPr wrap="square" rtlCol="0"` +
+    ins('lIns', opts.bodyInsets?.l) +
+    ins('tIns', opts.bodyInsets?.t) +
+    ins('rIns', opts.bodyInsets?.r) +
+    ins('bIns', opts.bodyInsets?.b) +
+    (opts.bodyAnchor ? ` anchor="${opts.bodyAnchor}"` : '') +
+    '/>'
   return (
     `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXmlAttr(name)}"/>` +
     `<p:cNvSpPr${isTextbox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>` +
     `<p:spPr>${xfrm}${geom}${fill}${ln}</p:spPr>` +
-    `<p:txBody><a:bodyPr wrap="square" rtlCol="0"/><a:lstStyle/>${paras}</p:txBody></p:sp>`
+    `<p:txBody>${bodyPr}<a:lstStyle/>${paras}</p:txBody></p:sp>`
   )
 }
 
