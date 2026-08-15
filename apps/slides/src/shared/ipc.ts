@@ -294,6 +294,12 @@ export interface AddElementOp {
   fillColor?: string
   /** Shape stroke (solid color + point width) */
   stroke?: { color: string; widthPt: number }
+  /** Textbox body insets in EMU (plan-route renderer zeroes them for DOM-faithful boxes) */
+  bodyInsets?: { l?: number; t?: number; r?: number; b?: number }
+  /** Textbox vertical anchor (OOXML t/ctr/b) */
+  bodyAnchor?: 't' | 'ctr' | 'b'
+  /** Textbox shrink-on-overflow autofit */
+  bodyAutofit?: 'shrink'
 }
 
 export interface DeleteElementOp {

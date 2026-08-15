@@ -170,7 +170,15 @@ export async function renderPagePlan(access: DeckAccess, idx: number, plan: Page
       hPx: Math.round(h),
       fitWidthPx: access.fitWidthPx,
       ...(opts.fill ? { fillColor: opts.fill } : {}),
-      ...(opts.paragraphs ? { paragraphs: opts.paragraphs } : {}),
+      ...(opts.paragraphs
+        ? {
+            paragraphs: opts.paragraphs,
+            // deterministic text: zero insets (no ~9.6px hidden shift), shrink so
+            // long copy self-fits instead of spilling out of the card
+            bodyInsets: { l: 0, t: 0, r: 0, b: 0 },
+            bodyAutofit: 'shrink',
+          }
+        : {}),
     })
     if (!r) return false
     access.applySlide(idx, r.slide)
@@ -386,21 +394,24 @@ export async function renderPagePlan(access: DeckAccess, idx: number, plan: Page
       const n = Math.max(1, items.length)
       const listY = H * 0.26
       const listH = H * 0.66
-      const gapY = 20
-      const rowH = Math.min(110, (listH - gapY * (n - 1)) / n)
+      const gapY = 16
+      const rowH = Math.min(104, (listH - gapY * (n - 1)) / n)
+      // dense lists: shrink the badge with the row so 5-6 entries never collide
+      const badge = Math.max(30, Math.min(52, rowH - 14))
+      const compact = rowH < 74
       for (let i = 0; i < n; i++) {
         const y = listY + i * (rowH + gapY)
         const item = items[i]
         await add('roundRect', M, y, W - 2 * M, rowH, { fill: plan.cardColor })
-        await add('roundRect', M + 18, y + rowH / 2 - 26, 52, 52, { fill: plan.accent })
-        await add('textbox', M + 18, y + rowH / 2 - 16, 52, 24 * PT_TO_PX, {
-          paragraphs: text([[String(i + 1), 20, true, '#FFFFFF']], 'center'),
+        await add('roundRect', M + 18, y + (rowH - badge) / 2, badge, badge, { fill: plan.accent })
+        await add('textbox', M + 18, y + (rowH - badge) / 2 + (badge - 26 * PT_TO_PX) / 2, badge, 26 * PT_TO_PX, {
+          paragraphs: text([[String(i + 1), compact ? 16 : 20, true, '#FFFFFF']], 'center'),
         })
-        await add('textbox', M + 92, y + rowH / 2 - 15, W - 2 * M - 120, 22 * PT_TO_PX, {
-          paragraphs: text([[item?.label ?? '', 18, true]]),
+        await add('textbox', M + 18 + badge + 22, y + (rowH - (compact ? 24 : 44)) / 2, W - 2 * M - badge - 60, (compact ? 24 : 26) * PT_TO_PX, {
+          paragraphs: text([[item?.label ?? '', compact ? 16 : 18, true]]),
         })
-        if (item?.sub) {
-          await add('textbox', M + 92, y + rowH / 2 + 12, W - 2 * M - 120, 16 * PT_TO_PX, {
+        if (item?.sub && !compact) {
+          await add('textbox', M + 18 + badge + 22, y + rowH / 2 + 4, W - 2 * M - badge - 60, 18 * PT_TO_PX, {
             paragraphs: text([[item.sub, 12, false]]),
           })
         }
@@ -424,8 +435,9 @@ export async function renderPagePlan(access: DeckAccess, idx: number, plan: Page
       break
     }
     case 'closing_thank_you': {
-      const cx = (W - 360) / 2
-      await add('rect', cx, H * 0.3, 360, 8, { fill: plan.accent })
+      const barW = Math.min(360, W * 0.3)
+      const cx = (W - barW) / 2
+      await add('rect', cx, H * 0.3, barW, 8, { fill: plan.accent })
       await add('textbox', M, H * 0.38, W - 2 * M, 52 * PT_TO_PX, {
         paragraphs: text([[plan.title || '谢谢观看', 44, true]], 'center'),
       })

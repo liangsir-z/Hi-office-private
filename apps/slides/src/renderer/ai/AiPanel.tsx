@@ -1289,16 +1289,16 @@ export function AiPanel({
           // instead of advise. The full system lives in the slide-design-master
           // skill; this block keeps only the hard constraints and the example.
           const BEAUTIFY_EXEMPLAR = `<!doctype html><html><head><meta charset="utf-8"><style>
-.slide { position: relative; width: 1280px; height: 720px; background: #F7F8FA; font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #1A1D24; }
-.title { position: absolute; left: 96px; top: 84px; font-size: 48px; font-weight: 700; }
+.slide { position: relative; width: 1280px; height: 720px; background: #F7F8FA; font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; line-height: 1.5; color: #1A1D24; }
+.title { position: absolute; left: 96px; top: 84px; font-size: 48px; font-weight: 700; line-height: 1.2; }
 .kicker { position: absolute; left: 96px; top: 148px; font-size: 19px; color: #0F766E; font-weight: 600; }
-.hero { position: absolute; left: 96px; top: 232px; font-size: 96px; font-weight: 700; color: #0F766E; }
+.hero { position: absolute; left: 96px; top: 232px; font-size: 96px; font-weight: 700; color: #0F766E; line-height: 1.1; }
 .hero-note { position: absolute; left: 96px; top: 388px; font-size: 21px; max-width: 420px; }
 .stats { position: absolute; left: 96px; right: 96px; bottom: 96px; display: flex; gap: 32px; }
 .stat { flex: 1; background: #FFFFFF; border-radius: 16px; padding: 28px 24px; }
 .stat .v { font-size: 34px; font-weight: 700; }
 .stat .l { font-size: 16px; color: #5B6472; margin-top: 8px; }
-.mark { position: absolute; right: 88px; top: 88px; width: 132px; height: 132px; border-radius: 66px; background: #0F766E; opacity: 0.12; }
+.mark { position: absolute; right: 88px; top: 88px; width: 132px; height: 132px; border-radius: 66px; background: rgba(15,118,110,0.12); }
 </style></head><body><div class="slide">
   <div class="mark"></div>
   <div class="title">季度业务复盘</div>
@@ -1314,7 +1314,8 @@ export function AiPanel({
           modelInstruction +=
             '\n\nDESIGN: follow the slide-design-master skill (already in your context): its typography scale, ONE accent color over a neutral background, 40-50% whitespace, and its hard bans (no bars/stripes/decorative lines — they are AI-generation tells).\n' +
             'IMPORTANT: You are expected to ACT, not advise.\n' +
-            'Preferred flow: call **regenerate_slide** and write the page yourself as HTML (per the tool contract: .slide 1280×720, solid fills, real text). ' +
+            'Preferred flow: call **regenerate_slide** and write the page yourself as HTML (per the tool contract: .slide 1280×720, solid fills, font-family PingFang SC, real text ≥13px, no z-index; rgba translucency is supported). ' +
+            'Keep the page lean (≤120 boxes, ≤2 card nesting levels) — the converter preserves exactly what the browser renders, so simple strong layouts convert perfectly while dense ones degrade. ' +
             'Match the design language of this exemplar (NOT its content — replace with this slide\'s real content, palette reused from the deck where sensible):\n\n' +
             BEAUTIFY_EXEMPLAR +
             '\n\nFor standard structures (TOC, KPI rows, comparison) the structured `plan` variants are equally good. ' +

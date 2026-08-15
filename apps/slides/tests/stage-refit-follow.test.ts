@@ -78,6 +78,10 @@ function makeSlidesApi() {
     getAnimations: () => Promise.resolve([]),
     getTransition: () => Promise.resolve(null),
     listFonts: () => Promise.resolve([]),
+    // App boot also queries skills/templates; the Proxy default resolves null
+    // which crashes the .length / for..of in those effects
+    skillList: () => Promise.resolve([]),
+    templateList: () => Promise.resolve([]),
   }
   const fallbacks = new Map<string, unknown>()
   return new Proxy(explicit, {

@@ -35,78 +35,301 @@ import { pushHistory, rebuildSlide, sessions } from './session-state'
 
 /**
  * DOM walker executed inside the hidden conversion window (see
- * 'slides:html-to-native'). Extracts the page as flat draw-order elements:
- * solid-fill shapes (rect/roundRect/ellipse by border radius), text blocks
- * (own text only, with computed font size/weight/color/align), and images.
- * Gradients/shadows/transforms are deliberately ignored — the HTML contract
- * forbids them.
+ * 'slides:html-to-native'). Fidelity contract with the emit side:
+ *
+ * 1. Line baking — the browser is the authority on line breaking. Every text
+ *    block is extracted as one paragraph per VISUAL line (per-character rect
+ *    binary search), with runs carrying the inline span styling. PowerPoint
+ *    never re-wraps (wrap="none"), so browser/PPT font-metric differences can
+ *    no longer reshuffle lines or rescale fonts.
+ * 2. Coordinates are relative to the .slide origin and rescaled to 1280×720,
+ *    so body margins / centering / scrollbar squish cannot shift the page.
+ * 3. Translucency is resolved by alpha-compositing onto the ancestor backdrop
+ *    (effective alpha = fill alpha × element opacity chain) instead of the old
+ *    "drop anything below 0.55" rule that left visual holes.
+ * 4. Font family + line-height + letter-spacing travel with the runs, keeping
+ *    browser, editor-renderer, and PowerPoint on the same metrics.
  */
 const HTML_DOM_WALKER = `(() => {
   const page = document.querySelector('.slide') || document.body
-  const hex = (c) => {
-    const m = /^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,\\s]+([\\d.]+))?\\)$/.exec((c || '').trim())
+  const pageRect = page.getBoundingClientRect()
+  const SX = 1280 / Math.max(1, pageRect.width)
+  const SY = 720 / Math.max(1, pageRect.height)
+  const px = (v) => Math.round(v * 10) / 10
+  const toPage = (x, y, w, h) => ({ x: px((x - pageRect.x) * SX), y: px((y - pageRect.y) * SY), w: px(w * SX), h: px(h * SY) })
+
+  const RGBA = /^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,\\s]+([\\d.]+))?\\)$/
+  const col = (c) => {
+    const m = RGBA.exec(String(c || '').trim())
     if (!m) return null
-    const a = m[4] === undefined ? 1 : parseFloat(m[4])
-    // translucent fills are decorative tints; converting them to opaque solids
-    // would paint walls over the text layer — skip them entirely
-    if (a < 0.55) return null
-    return '#' + [1, 2, 3].map((i) => Math.max(0, Math.min(255, +m[i])).toString(16).padStart(2, '0')).join('')
+    return { r: +m[1], g: +m[2], b: +m[3], a: m[4] === undefined ? 1 : parseFloat(m[4]) }
   }
-  const out = { background: hex(getComputedStyle(page).backgroundColor), elements: [] }
-  const round = (r) => ({ x: Math.round(r.x * 10) / 10, y: Math.round(r.y * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 })
-  const walk = (parent) => {
-    for (const child of parent.children) {
-      const cs = getComputedStyle(child)
-      if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.05) continue
-      const r = child.getBoundingClientRect()
-      if (r.width < 6 || r.height < 6 || r.x > 1280 || r.y > 720 || r.x + r.width < 0 || r.y + r.height < 0) continue
-      if (child.tagName === 'IMG' && child.src && /^https?:/.test(child.src)) {
-        out.elements.push({ kind: 'image', ...round(r), src: child.src, naturalWidth: child.naturalWidth || 0, naturalHeight: child.naturalHeight || 0 })
-        continue
-      }
-      const bg = hex(cs.backgroundColor)
-      const ownText = Array.from(child.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').replace(/\\s+/g, ' ').trim()
-      if (ownText) {
-        if (bg) out.elements.push({ kind: shapeKind(cs, r), ...round(r), fill: bg })
-        // ink box: the union of the actual glyph rects — keeps converted boxes
-        // tight around the text (flex-stretched elements would otherwise emit
-        // oversized boxes that trip the overlap audit), plus the visual line count
-        let box = round(r)
-        let lines = 1
-        try {
-          const range = document.createRange()
-          range.selectNodeContents(child)
-          const rects = Array.from(range.getClientRects()).filter((rr) => rr.width > 0 && rr.height > 0)
-          if (rects.length) {
-            let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity
-            for (const rr of rects) { x1 = Math.min(x1, rr.x); y1 = Math.min(y1, rr.y); x2 = Math.max(x2, rr.x + rr.width); y2 = Math.max(y2, rr.y + rr.height) }
-            box = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }
-            lines = new Set(rects.map((rr) => Math.round(rr.y / 4))).size || 1
-          }
-        } catch (e) { /* keep the element rect */ }
-        const pt = Math.round((parseFloat(cs.fontSize) * 72 / 96) * 10) / 10
-        out.elements.push({
-          kind: 'text', ...box, lines, text: ownText.slice(0, 1200), pt,
-          bold: parseInt(cs.fontWeight, 10) >= 600,
-          color: hex(cs.color) || '#000000',
-          align: cs.textAlign === 'center' ? 'center' : (cs.textAlign === 'right' || cs.textAlign === 'end') ? 'right' : 'left',
-        })
-        walk(child)
-        continue
-      }
-      if (bg) out.elements.push({ kind: shapeKind(cs, r), ...round(r), fill: bg })
-      walk(child)
+  const WHITE = { r: 255, g: 255, b: 255, a: 1 }
+  const blend = (fg, bg) => fg.a >= 0.999 ? fg : { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 }
+  const hexOf = (p) => '#' + [p.r, p.g, p.b].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')
+
+  // effective backdrop behind el (el itself excluded): translucent ancestors folded onto the page background
+  const backdropOf = (el) => {
+    const chain = []
+    let node = el && el.parentElement
+    while (node) {
+      const p = col(getComputedStyle(node).backgroundColor)
+      if (p) { chain.unshift(p); if (p.a >= 0.999) break }
+      if (node === page) break
+      node = node.parentElement
     }
+    let acc = col(getComputedStyle(page).backgroundColor)
+    acc = acc && acc.a >= 0.999 ? acc : acc ? blend(acc, WHITE) : WHITE
+    for (const p of chain) acc = blend(p, acc)
+    return acc
   }
+
+  const serifish = (f) => /serif|songti|song|宋/i.test(f) && !/sans/i.test(f)
+  const fontOf = (family) => serifish(String(family || '')) ? 'Songti SC' : 'PingFang SC'
+  const INLINE_TAGS = { SPAN: 1, B: 1, STRONG: 1, I: 1, EM: 1, MARK: 1, A: 1, SMALL: 1, U: 1, S: 1, DEL: 1, INS: 1, CODE: 1, ABBR: 1, SUB: 1, SUP: 1, FONT: 1, TIME: 1 }
+  const isInline = (el, cs) => !!INLINE_TAGS[el.tagName] || cs.display === 'inline' || cs.display === 'inline-block'
+  const isBold = (w) => w === 'bold' || parseInt(w, 10) >= 600
+
+  // split one text node's characters across its rendered line boxes; the rect
+  // of each segment is that line's ink box (x1/x2/top/bottom, viewport px)
+  const splitNodeLines = (node) => {
+    const text = node.textContent
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const rects = Array.from(range.getClientRects()).filter((rr) => rr.width > 0 && rr.height > 0).sort((a, b) => a.top - b.top || a.x - b.x)
+    if (!rects.length) return []
+    const buckets = []
+    for (const rr of rects) {
+      const last = buckets[buckets.length - 1]
+      if (last && Math.abs(rr.top - last.top) < Math.max(2.5, Math.min(rr.height, last.bottom - last.top) * 0.6)) {
+        last.bottom = Math.max(last.bottom, rr.y + rr.height)
+        last.x1 = Math.min(last.x1, rr.x); last.x2 = Math.max(last.x2, rr.x + rr.width)
+      } else {
+        buckets.push({ top: rr.top, bottom: rr.y + rr.height, x1: rr.x, x2: rr.x + rr.width })
+      }
+    }
+    if (buckets.length === 1) return [{ text: text.replace(/\\s+/g, ' ').trim(), rect: buckets[0] }]
+    const charTop = (i) => {
+      range.setStart(node, i); range.setEnd(node, Math.min(i + 1, text.length))
+      const rr = range.getClientRects()
+      return rr.length ? rr[0].y : null
+    }
+    const segments = []
+    let start = 0
+    for (let k = 1; k < buckets.length; k++) {
+      const edge = (buckets[k - 1].bottom + buckets[k].top) / 2
+      let lo = start + 1, hi = text.length, found = text.length
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        const top = charTop(mid)
+        if (top !== null && top >= edge) { found = mid; hi = mid - 1 } else { lo = mid + 1 }
+      }
+      segments.push({ text: text.slice(start, found), rect: buckets[k - 1] })
+      start = found
+    }
+    segments.push({ text: text.slice(start), rect: buckets[buckets.length - 1] })
+    return segments.map((s) => ({ text: s.text.replace(/\\s+/g, ' ').trim(), rect: s.rect })).filter((s) => s.text)
+  }
+
+  // document-order fragments across the inline subtree of a text-block root;
+  // inline elements with their own background also yield a shape (badges/pills)
+  const collectFragments = (el, out, subShapes, opacity) => {
+    const visit = (node, cs) => {
+      if (node.nodeType === 3) {
+        if (!node.textContent.trim()) { out.push({ space: true }); return }
+        for (const seg of splitNodeLines(node)) out.push({ text: seg.text, rect: seg.rect, cs })
+        return
+      }
+      if (node.nodeType !== 1) return
+      const ccs = getComputedStyle(node)
+      if (ccs.display === 'none' || ccs.visibility === 'hidden') return
+      if (!isInline(node, ccs)) return
+      const op = opacity * parseFloat(ccs.opacity)
+      if (op < 0.05) return
+      const bg = col(ccs.backgroundColor)
+      if (bg && bg.a * op > 0.05) {
+        const r = node.getBoundingClientRect()
+        if (r.width > 2 && r.height > 2) {
+          subShapes.push({ kind: shapeKind(ccs, r), ...toPage(r.x, r.y, r.width, r.height), fill: hexOf(blend({ r: bg.r, g: bg.g, b: bg.b, a: bg.a * op }, backdropOf(node.parentElement))) })
+        }
+      }
+      for (const c of node.childNodes) visit(c, ccs)
+    }
+    for (const c of el.childNodes) visit(c, getComputedStyle(el))
+  }
+
+  // font natural (normal) line height in px, probed once per font+size: CSS
+  // line-height:N means N × font-size, but OOXML spcPct:N% means N × the font's
+  // natural line height — the probe provides the conversion denominator
+  const naturalCache = {}
+  const naturalPx = (font, fs) => {
+    const key = font + '|' + Math.round(fs)
+    if (naturalCache[key] != null) return naturalCache[key]
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;line-height:normal;font-family:' + JSON.stringify(font) + ';font-size:' + fs + 'px'
+    probe.textContent = '国Ag'
+    document.body.appendChild(probe)
+    const h = probe.getBoundingClientRect().height
+    document.body.removeChild(probe)
+    naturalCache[key] = h > 0 ? h : fs * 1.4
+    return naturalCache[key]
+  }
+
+  const buildTextBlock = (rootEl, effOp) => {
+    const frags = []
+    const subShapes = []
+    collectFragments(rootEl, frags, subShapes, effOp)
+    let prev = null
+    for (const f of frags) {
+      if (f.space) { if (prev) prev.spaceAfter = true; continue }
+      if (prev && prev.spaceAfter && !prev.text.endsWith(' ') && !f.text.startsWith(' ')) prev.text += ' '
+      prev = f
+    }
+    const real = frags.filter((f) => !f.space)
+    if (!real.length) return null
+    // cluster fragments into visual lines. Same line = shared baseline: big and
+    // small runs on one baseline have different tops, so pure top-proximity
+    // splits them — use ink overlap plus bottom(baseline)-closeness instead
+    const lines = []
+    for (const f of real) {
+      const fh = f.rect.bottom - f.rect.top
+      let line = null
+      for (const L of lines) {
+        const overlap = Math.min(f.rect.bottom, L.bottom) - Math.max(f.rect.top, L.top)
+        const minH = Math.min(fh, L.h)
+        if (overlap > minH * 0.25 || Math.abs(f.rect.bottom - L.bottom) < Math.max(4, minH * 0.2)) { line = L; break }
+      }
+      if (!line) { line = { top: f.rect.top, bottom: f.rect.bottom, h: fh, frags: [] }; lines.push(line) }
+      line.top = Math.min(line.top, f.rect.top)
+      line.bottom = Math.max(line.bottom, f.rect.bottom)
+      line.h = Math.max(line.h, fh)
+      line.frags.push(f)
+    }
+    lines.sort((a, b) => a.top - b.top)
+    for (const L of lines) L.frags.sort((a, b) => a.rect.x1 - b.rect.x1)
+    // line metrics: dominant run decides line-height ratio; ink box decides geometry
+    let x1 = Infinity, x2 = -Infinity, inkTop = Infinity, inkBottom = -Infinity, maxFs = 0
+    for (const L of lines) {
+      let dom = L.frags[0]
+      for (const f of L.frags) if (parseFloat(f.cs.fontSize) > parseFloat(dom.cs.fontSize)) dom = f
+      L.fs = parseFloat(dom.cs.fontSize)
+      const font = fontOf(dom.cs.fontFamily)
+      const nat = naturalPx(font, L.fs)
+      // 'normal' CSS line-height IS the natural height → pct 100 exactly
+      const lhRaw = parseFloat(dom.cs.lineHeight)
+      L.lh = lhRaw > 0 ? lhRaw : nat
+      L.nat = nat
+      L.pct = Math.max(50, Math.min(300, Math.round(L.lh / nat * 100)))
+      L.top = Math.min.apply(null, L.frags.map((f) => f.rect.top))
+      L.bottom = Math.max.apply(null, L.frags.map((f) => f.rect.bottom))
+      L.x1 = Math.min.apply(null, L.frags.map((f) => f.rect.x1))
+      L.x2 = Math.max.apply(null, L.frags.map((f) => f.rect.x2))
+      x1 = Math.min(x1, L.x1); x2 = Math.max(x2, L.x2)
+      inkTop = Math.min(inkTop, L.top); inkBottom = Math.max(inkBottom, L.bottom)
+      maxFs = Math.max(maxFs, L.fs)
+    }
+    const rcs = getComputedStyle(rootEl)
+    const align = rcs.textAlign === 'center' ? 'center' : (rcs.textAlign === 'right' || rcs.textAlign === 'end') ? 'right' : 'left'
+    const first = lines[0], last = lines[lines.length - 1]
+    // Baseline-exact geometry: the renderer (and PowerPoint) place line 1's
+    // baseline at boxTop + fontAscent and stack lines at pct% × natural height.
+    // CSS places the same ascent at lineBoxTop + (cssLh − natural)/2 — so the
+    // box top must be the block's first line-box top plus that half-leading.
+    const rootR = rootEl.getBoundingClientRect()
+    const lbTop1 = rootR.top + (parseFloat(rcs.borderTopWidth) || 0) + (parseFloat(rcs.paddingTop) || 0)
+    const y = lbTop1 + (first.lh - first.nat) / 2
+    const lhSum = lines.reduce((s, L) => s + L.lh, 0)
+    const h = Math.max(lhSum, maxFs * 1.25)
+    const w = x2 - x1 + 5
+    const x = align === 'center' ? (x1 + x2) / 2 - w / 2 : align === 'right' ? x2 - w + 3 : x1 - 2
+    const backdrop = backdropOf(rootEl.parentElement)
+    const el = {
+      kind: 'text', ...toPage(x, y, w, h), align,
+      lines: lines.map((L) => ({
+        pct: L.pct,
+        inkTop: +(((L.top - pageRect.y) * SY)).toFixed(1),
+        inkBottom: +(((L.bottom - pageRect.y) * SY)).toFixed(1),
+        runs: L.frags.map((f) => {
+          const fc = col(f.cs.color) || { r: 0, g: 0, b: 0, a: 1 }
+          const spcRaw = parseFloat(f.cs.letterSpacing)
+          return {
+            text: f.text,
+            pt: Math.round(parseFloat(f.cs.fontSize) * 72 / 96 * 10) / 10,
+            bold: isBold(f.cs.fontWeight),
+            color: hexOf(blend({ r: fc.r, g: fc.g, b: fc.b, a: fc.a * effOp }, backdrop)),
+            font: fontOf(f.cs.fontFamily),
+            ...(isFinite(spcRaw) && Math.abs(spcRaw) > 0.05 ? { spc: Math.round(spcRaw * 0.75 * 100) / 100 } : {}),
+          }
+        }),
+      })),
+    }
+    return { el, subShapes }
+  }
+
   const shapeKind = (cs, r) => {
     const radius = parseFloat(cs.borderTopLeftRadius) || 0
     if (radius >= Math.min(r.width, r.height) * 0.45) return 'ellipse'
-    return radius > 6 ? 'roundRect' : 'rect'
+    return radius > 4 ? 'roundRect' : 'rect'
   }
-  walk(page)
-  if (out.elements.length > 160) out.elements = out.elements.slice(0, 160)
+
+  const out = { background: hexOf(blend(col(getComputedStyle(page).backgroundColor) || WHITE, WHITE)), elements: [] }
+  const pushShape = (el, cs, r, effOp) => {
+    const bg = col(cs.backgroundColor)
+    if (!bg || bg.a * effOp < 0.03) return
+    const kind = shapeKind(cs, r)
+    const radius = parseFloat(cs.borderTopLeftRadius) || 0
+    const shortSide = Math.min(r.width, r.height)
+    const adj = kind === 'roundRect' && shortSide > 0 ? Math.min(50000, Math.round(radius / shortSide * 100000)) : 0
+    out.elements.push({
+      kind, ...toPage(r.x, r.y, r.width, r.height),
+      fill: hexOf(blend({ r: bg.r, g: bg.g, b: bg.b, a: bg.a * effOp }, backdropOf(el.parentElement))),
+      ...(adj > 0 ? { adj } : {}),
+    })
+  }
+  const walk = (parent, parentOp, skipInlineChildren) => {
+    for (const child of parent.children) {
+      const cs = getComputedStyle(child)
+      const op = parentOp * parseFloat(cs.opacity)
+      if (cs.display === 'none' || cs.visibility === 'hidden' || op < 0.05) continue
+      const r = child.getBoundingClientRect()
+      if (r.width * SX < 2 || r.height * SY < 2) continue
+      if (r.x + r.width < pageRect.x || r.x > pageRect.x + pageRect.width || r.y + r.height < pageRect.y || r.y > pageRect.y + pageRect.height) continue
+      if (skipInlineChildren && isInline(child, cs)) continue
+      if (child.tagName === 'IMG' && child.src && /^https?:/.test(child.src)) {
+        out.elements.push({ kind: 'image', ...toPage(r.x, r.y, r.width, r.height), src: child.src, naturalWidth: child.naturalWidth || 0, naturalHeight: child.naturalHeight || 0, fit: cs.objectFit || 'fill' })
+        continue
+      }
+      const kids = Array.from(child.children)
+      const directText = Array.from(child.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim())
+      // all-inline children (e.g. <div><span>a</span><span>b</span></div>) form one
+      // text block too — splitting them into separate boxes breaks the baseline
+      const inlineOnly = !directText && kids.length > 0 && kids.every((g) => {
+        const gcs = getComputedStyle(g)
+        return gcs.display !== 'none' && isInline(g, gcs)
+      })
+      pushShape(child, cs, r, op)
+      if (directText || inlineOnly) {
+        const block = buildTextBlock(child, op)
+        if (block) {
+          for (const s of block.subShapes) out.elements.push(s)
+          out.elements.push(block.el)
+        }
+      }
+      walk(child, op, directText || inlineOnly)
+    }
+  }
+  walk(page, 1, false)
   return out
 })()`
+
+interface HtmlWalkRun {
+  text: string
+  pt: number
+  bold?: boolean
+  color?: string
+  font?: string
+  spc?: number
+}
 
 interface HtmlWalkResult {
   background: string | null
@@ -117,15 +340,13 @@ interface HtmlWalkResult {
     w: number
     h: number
     fill?: string
-    text?: string
-    pt?: number
-    bold?: boolean
-    color?: string
+    adj?: number
     align?: 'left' | 'center' | 'right'
+    lines?: Array<{ pct?: number; runs: HtmlWalkRun[] }>
     src?: string
     naturalWidth?: number
     naturalHeight?: number
-    lines?: number
+    fit?: string
   }>
 }
 
@@ -340,6 +561,11 @@ export function registerSlidesOnlyAiIpc(): void {
           | HtmlWalkResult
           | null
         if (!parsed || !Array.isArray(parsed.elements)) return { error: 'DOM walk failed' }
+        if (parsed.elements.length > 220) {
+          return {
+            error: `page has ${parsed.elements.length} convertible elements (max 220) — simplify the design: fewer decorative boxes, keep only essential text and shapes`,
+          }
+        }
         if (parsed.elements.length > 0 && !parsed.elements.some((el) => el.kind === 'text')) {
           return { error: 'no text found in the page — text must be real DOM text, not CSS or images' }
         }
@@ -358,7 +584,12 @@ export function registerSlidesOnlyAiIpc(): void {
         const emit = async (
           kind: string,
           r: { x: number; y: number; w: number; h: number },
-          opts: { fill?: string; paragraphs?: unknown[]; text?: boolean } = {},
+          opts: {
+            fill?: string
+            paragraphs?: unknown[]
+            text?: boolean
+            roundRectAdj?: number
+          } = {},
         ) => {
           addElement(slide, {
             kind,
@@ -369,17 +600,17 @@ export function registerSlidesOnlyAiIpc(): void {
               cy: Math.max(1, toEmu(Math.min(r.h, 720 - r.y), deckH, 720)),
             },
             ...(opts.fill ? { fillColor: opts.fill } : {}),
+            ...(opts.roundRectAdj ? { roundRectAdj: opts.roundRectAdj } : {}),
             ...(opts.paragraphs ? { paragraphs: opts.paragraphs as never } : {}),
             ...(opts.text
               ? {
-                  // DOM-faithful text boxes: no OOXML default insets (they were
-                  // the "mystery padding" that made every converted box overflow),
-                  // vertically centered for 1-2 line labels, and shrink-on-
-                  // overflow so native-metric drift self-corrects instead of
-                  // burning QC tool rounds
+                  // DOM-faithful text boxes. The browser already decided the line
+                  // breaks (one paragraph per visual line) and the box geometry, so:
+                  // zero insets, top anchor, no autofit (shrink would rescale the
+                  // design), and wrap="none" so native metrics can never re-wrap.
                   bodyInsets: { l: 0, t: 0, r: 0, b: 0 },
-                  bodyAnchor: 'ctr',
-                  bodyAutofit: 'shrink',
+                  bodyAnchor: 't',
+                  bodyWrap: 'none',
                 }
               : {}),
           })
@@ -394,47 +625,63 @@ export function registerSlidesOnlyAiIpc(): void {
               const buf = Buffer.from(await resp.arrayBuffer())
               const ct = resp.headers.get('content-type') ?? ''
               const ext = ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' : 'jpg'
-              // contain-fit the natural aspect inside the DOM rect
               const nw = el.naturalWidth || 1
               const nh = el.naturalHeight || 1
-              const s = Math.min(el.w / nw, el.h / nh)
-              const w = nw * s
-              const h = nh * s
+              let box = { x: el.x, y: el.y, w: el.w, h: el.h }
+              let srcRect: { l?: number; t?: number; r?: number; b?: number } | undefined
+              if (el.fit === 'cover') {
+                // crop-to-fill: fractions of the scaled bitmap cut from each edge
+                const s = Math.max(el.w / nw, el.h / nh)
+                const cutX = Math.max(0, (nw * s - el.w) / (nw * s)) / 2
+                const cutY = Math.max(0, (nh * s - el.h) / (nh * s)) / 2
+                if (cutX > 0.002 || cutY > 0.002) {
+                  srcRect = {
+                    ...(cutX > 0.002 ? { l: cutX, r: cutX } : {}),
+                    ...(cutY > 0.002 ? { t: cutY, b: cutY } : {}),
+                  }
+                }
+              } else if (el.fit !== 'fill') {
+                // contain: center the natural aspect inside the DOM rect
+                const s = Math.min(el.w / nw, el.h / nh)
+                const w = nw * s
+                const h = nh * s
+                box = { x: el.x + (el.w - w) / 2, y: el.y + (el.h - h) / 2, w, h }
+              }
               addPicture(session.opened, slide, {
                 bytes: new Uint8Array(buf),
                 ext,
                 offset: {
-                  x: toEmu(clamp(el.x + (el.w - w) / 2, 1280), deckW, 1280),
-                  y: toEmu(clamp(el.y + (el.h - h) / 2, 720), deckH, 720),
-                  cx: Math.max(1, toEmu(w, deckW, 1280)),
-                  cy: Math.max(1, toEmu(h, deckH, 720)),
+                  x: toEmu(clamp(box.x, 1280), deckW, 1280),
+                  y: toEmu(clamp(box.y, 720), deckH, 720),
+                  cx: Math.max(1, toEmu(Math.min(box.w, 1280 - box.x), deckW, 1280)),
+                  cy: Math.max(1, toEmu(Math.min(box.h, 720 - box.y), deckH, 720)),
                 },
+                ...(srcRect ? { srcRect } : {}),
               })
             } catch {
               imageFailures++
             }
           } else if (el.kind === 'text') {
-            // minimum height for the font so 1-2 line text never clips after
-            // the native font metrics replace the DOM's
-            const minH = ((el.pt ?? 14) / 0.75) * 1.4 * Math.min(el.lines ?? 1, 2)
-            await emit('textbox', { ...el, h: Math.max(el.h, minH) }, {
+            await emit('textbox', el, {
               text: true,
-              paragraphs: [
-                {
-                  runs: [
-                    {
-                      text: el.text,
-                      ...(el.pt ? { fontSize: Math.max(8, Math.min(96, el.pt)) } : {}),
-                      ...(el.bold ? { bold: true } : {}),
-                      color: el.color ?? '#000000',
-                    },
-                  ],
-                  ...(el.align && el.align !== 'left' ? { align: el.align } : {}),
-                },
-              ],
+              paragraphs: (el.lines ?? []).map((line) => ({
+                runs: line.runs.map((run) => ({
+                  text: run.text,
+                  fontSize: Math.max(8, Math.min(96, run.pt)),
+                  ...(run.bold ? { bold: true } : {}),
+                  color: run.color ?? '#000000',
+                  fontFamily: run.font ?? 'PingFang SC',
+                  ...(run.spc ? { letterSpacing: run.spc } : {}),
+                })),
+                ...(el.align && el.align !== 'left' ? { align: el.align } : {}),
+                ...(line.pct ? { lineHeight: line.pct } : {}),
+              })),
             })
           } else {
-            await emit(el.kind, el, el.fill ? { fill: el.fill } : {})
+            await emit(el.kind, el, {
+              ...(el.fill ? { fill: el.fill } : {}),
+              ...(el.adj ? { roundRectAdj: el.adj } : {}),
+            })
           }
         }
         const rebuilt = rebuildSlide(session, op.slideIndex)

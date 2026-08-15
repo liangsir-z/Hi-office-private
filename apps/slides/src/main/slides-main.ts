@@ -1546,6 +1546,12 @@ export function registerSlidesIpc(): void {
             },
           }
         : {}),
+      // DOM-faithful text options (used by the plan-route page renderer): zero
+      // insets kill the OOXML default ~9.6px l/r padding that shifted and
+      // re-wrapped text; shrink keeps long body copy from spilling out
+      ...(op.bodyInsets ? { bodyInsets: op.bodyInsets } : {}),
+      ...(op.bodyAnchor ? { bodyAnchor: op.bodyAnchor } : {}),
+      ...(op.bodyAutofit ? { bodyAutofit: op.bodyAutofit } : {}),
     })
     const rebuilt = rebuildSlide(session, op.slideIndex)
     return rebuilt ? { slide: rebuilt, sourceId: el.id } : null

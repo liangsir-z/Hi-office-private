@@ -119,22 +119,19 @@ describe('anti hand-building from scratch', () => {
     expect(r.isError).toBeUndefined()
     expect((window as any).slidesApi.addElement).toHaveBeenCalledOnce()
   })
-  it('after cloud generation has run, allowed even with an empty deck (tweak scenario)', async () => {
-    const access = {
-      ...mkAccess([blankDeck]),
-      retryBackoffMs: 0,
-      isCloudPageGenEnabled: async () => true,
-      generatePageCloud: async () => ({ ok: true, marker: 'cloudpptx:/tmp/x.pptx' }),
-    } as unknown as DeckAccess
-    const skill = createSlidesSkill(access)
-    // First run one generate_deck to set htmlGenerated=true
+  it('after the local HTML pipeline has run, allowed even with an empty deck (tweak scenario)', async () => {
+    ;(window as any).slidesApi.htmlToNative = vi.fn(async () => ({
+      slide: { widthPx: 1280, heightPx: 720, nodes: [textNode('t', 'Rebuilt')] },
+    }))
+    const skill = createSlidesSkill(mkAccess([blankDeck]))
+    // One regenerate_slide via the local html→native route marks the session
+    // as pipeline-driven (htmlGenerated), after which fine-tuning is legitimate
     await skill.executeTool!({
       id: 't',
-      name: 'generate_deck',
+      name: 'regenerate_slide',
       input: {
-        core_hook: 'h',
-        style: 's',
-        pages: [{ title: 'T', brief: 'b', layout: 'data', image_queries: [] }],
+        slideIndex: 0,
+        html: '<!doctype html><div class="slide"><div class="title">Rebuilt</div></div>',
       },
     })
     const r = await skill.executeTool!(call('add_text_box'))

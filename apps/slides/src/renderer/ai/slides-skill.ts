@@ -645,7 +645,7 @@ const TOOLS: AgentToolDef[] = [
         html: {
           type: 'string',
           description:
-            'PREFERRED route: full-page HTML you design freely. Contract: one <div class="slide"> exactly 1280×720 px (position:relative, overflow:hidden, solid background); children laid out with flex/absolute inside it; system font stack; SOLID background fills only (no gradients, shadows, transforms, or animations); text as real text (never inside images); images as <img src="http(s)://..."> sized explicitly; keep all content ≥48px from the canvas edges; reuse the deck palette and clear font hierarchy (title ≥28pt≈37px, body ≥14pt≈19px).',
+            'PREFERRED route: full-page HTML you design freely. Contract: one <div class="slide"> exactly 1280×720 px (position:relative, overflow:hidden, solid background); children laid out with flex/absolute inside it; font-family exactly "PingFang SC", "Microsoft YaHei", sans-serif; SOLID background fills only (no gradients, shadows, transforms, z-index, or animations); rgba()/opacity translucency IS supported (converter composites it); text as real text (never inside images), font ≥13px; images as <img src="http(s)://..."> sized explicitly (object-fit cover/contain supported); keep all content ≥48px from the canvas edges; reuse the deck palette and clear font hierarchy (title ≥37px, body ≥19px). Keep the page lean: ≤120 convertible boxes total — no more than 2 nesting levels of cards, decorative strips are better as few large shapes than many small ones.',
         },
         plan: {
           type: 'object',
@@ -2191,6 +2191,7 @@ async function executeTool(
         if (r && 'slide' in r && r.slide) {
           access.applySlide(idx, r.slide)
           access.onPagesRebuilt?.([idx])
+          if (state) state.htmlGenerated = true // subsequent native fine-tuning is legitimate
           const imgNote = 'imageFailures' in r && r.imageFailures ? ` (${r.imageFailures} image(s) failed to download)` : ''
           return {
             output: `Page ${idx + 1} was rebuilt from your HTML as native elements${imgNote}. Call read_slide to verify, then fine-tune with execute_slide_script if needed.`,
@@ -2212,6 +2213,7 @@ async function executeTool(
       }
       const built = await renderPagePlan(access, idx, parsed.plan)
       if (!built.ok) return fail(t('aiFailRegen'), built.error ?? 'rebuild failed')
+      if (state) state.htmlGenerated = true // subsequent native fine-tuning is legitimate
       return {
         output: `Page ${idx + 1} was rebuilt with the "${parsed.plan.variant}" layout. Call read_slide to verify, then fine-tune with execute_slide_script if needed.`,
         mutated: true,

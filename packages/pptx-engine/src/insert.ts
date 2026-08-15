@@ -36,6 +36,10 @@ export interface NewElementOptions {
   bodyAnchor?: 't' | 'ctr' | 'b'
   /** Textbox autofit: 'shrink' emits <a:normAutofit/> — the renderer shrinks the font to fit overflow (metric differences self-correct instead of tripping the layout audit) */
   bodyAutofit?: 'shrink'
+  /** Textbox word wrap (OOXML square/none). 'none' bakes browser line breaks: each paragraph is one pre-broken visual line and PowerPoint never re-wraps */
+  bodyWrap?: 'square' | 'none'
+  /** roundRect corner radius adjust (1/1000 % of the short side, 50000 = pill). Without it PowerPoint defaults to 16667 */
+  roundRectAdj?: number
 }
 
 let insertCounter = 1
@@ -108,7 +112,9 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
   // Parser convention: has txBody and no prstGeom → 'text'; textbox omits prstGeom
   const geom = isTextbox
     ? ''
-    : `<a:prstGeom prst="${escapeXmlAttr(opts.kind)}"><a:avLst/></a:prstGeom>`
+    : opts.kind === 'roundRect' && opts.roundRectAdj != null
+      ? `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val ${Math.max(0, Math.min(50000, Math.round(opts.roundRectAdj)))}"/></a:avLst></a:prstGeom>`
+      : `<a:prstGeom prst="${escapeXmlAttr(opts.kind)}"><a:avLst/></a:prstGeom>`
   const fill = opts.fillColor
     ? `<a:solidFill><a:srgbClr val="${opts.fillColor.replace(/^#/, '').slice(0, 6).toUpperCase()}"/></a:solidFill>`
     : ''
@@ -121,7 +127,7 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
   const ins = (name: string, v: number | undefined) =>
     v !== undefined ? ` ${name}="${Math.round(v)}"` : ''
   const bodyAttrs =
-    `<a:bodyPr wrap="square" rtlCol="0"` +
+    `<a:bodyPr wrap="${opts.bodyWrap ?? 'square'}" rtlCol="0"` +
     ins('lIns', opts.bodyInsets?.l) +
     ins('tIns', opts.bodyInsets?.t) +
     ins('rIns', opts.bodyInsets?.r) +
@@ -252,6 +258,8 @@ export interface NewPictureOptions {
   name?: string
   /** cNvPr descr: editor-specific payload (e.g. ink vector points), recoverable on reopen */
   descr?: string
+  /** Source crop per edge as a 0..1 fraction (object-fit:cover equivalent) */
+  srcRect?: { l?: number; t?: number; r?: number; b?: number }
 }
 
 /**
@@ -317,14 +325,20 @@ export function addPicture(
   if (!added) return null
   const { rid, mediaPath } = added
 
-  // 4) <p:pic> fragment
+  // 4) <p:pic> fragment (a:srcRect in 1/1000 %, schema order: blip → srcRect → stretch)
   const id = nextCNvPrId(slide)
   const name = opts.name ?? `Picture ${id}`
   const descrAttr = opts.descr ? ` descr="${escapeXmlAttr(opts.descr)}"` : ''
+  const srcRect = opts.srcRect
+    ? `<a:srcRect${Object.entries(opts.srcRect)
+        .filter(([, v]) => v && v > 0)
+        .map(([k, v]) => ` ${k}="${Math.min(100000, Math.round(v * 100000))}"`)
+        .join('')}/>`
+    : ''
   const xml =
     `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${escapeXmlAttr(name)}"${descrAttr}/>` +
     '<p:cNvPicPr/><p:nvPr/></p:nvPicPr>' +
-    `<p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
+    `<p:blipFill><a:blip r:embed="${rid}"/>${srcRect}<a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
     `<p:spPr>${generateXfrmXml({ offset: opts.offset, rot: 0, flipH: false, flipV: false })}` +
     '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>'
 
@@ -335,6 +349,7 @@ export function addPicture(
     transform: { offset: { ...opts.offset }, rot: 0, flipH: false, flipV: false },
     name,
     ...(opts.descr ? { descr: opts.descr } : {}),
+    ...(srcRect ? { srcRect: { ...opts.srcRect } as PictureElement['srcRect'] } : {}),
     mediaRef: mediaPath,
   }
   slide.elements.push(el)
