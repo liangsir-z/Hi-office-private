@@ -374,9 +374,12 @@ export function registerSlidesOnlyAiIpc(): void {
               ? {
                   // DOM-faithful text boxes: no OOXML default insets (they were
                   // the "mystery padding" that made every converted box overflow),
-                  // vertically centered for 1-2 line labels
+                  // vertically centered for 1-2 line labels, and shrink-on-
+                  // overflow so native-metric drift self-corrects instead of
+                  // burning QC tool rounds
                   bodyInsets: { l: 0, t: 0, r: 0, b: 0 },
                   bodyAnchor: 'ctr',
+                  bodyAutofit: 'shrink',
                 }
               : {}),
           })

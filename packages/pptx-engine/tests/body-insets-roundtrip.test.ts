@@ -21,6 +21,7 @@ describe('textbox bodyInsets/bodyAnchor roundtrip', () => {
       ],
       bodyInsets: { l: 0, t: 0, r: 0, b: 0 },
       bodyAnchor: 'ctr',
+      bodyAutofit: 'shrink',
     })
 
     const bytes = await savePptx(opened)
@@ -33,11 +34,13 @@ describe('textbox bodyInsets/bodyAnchor roundtrip', () => {
         paragraphs: Array<{ runs: Array<{ text: string }> }>
         anchor?: string
         insets?: { l: number; t: number; r: number; b: number }
+        autofit?: string
       }
     }).text
     expect(text?.paragraphs[0]?.runs[0]?.text).toBe('季度业务复盘')
     expect(text?.anchor).toBe('middle')
     expect(text?.insets).toEqual({ l: 0, t: 0, r: 0, b: 0 })
+    expect(text?.autofit).toBe('shrink')
   })
 
   it('plain addElement (no body options) still defaults correctly', async () => {

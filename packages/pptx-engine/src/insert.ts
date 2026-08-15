@@ -34,6 +34,8 @@ export interface NewElementOptions {
   bodyInsets?: { l?: number; t?: number; r?: number; b?: number }
   /** Textbox vertical anchor (OOXML t/ctr/b); unset keeps the default top */
   bodyAnchor?: 't' | 'ctr' | 'b'
+  /** Textbox autofit: 'shrink' emits <a:normAutofit/> — the renderer shrinks the font to fit overflow (metric differences self-correct instead of tripping the layout audit) */
+  bodyAutofit?: 'shrink'
 }
 
 let insertCounter = 1
@@ -118,14 +120,17 @@ export function buildSpXml(slide: Slide, opts: NewElementOptions): string {
     .join('')
   const ins = (name: string, v: number | undefined) =>
     v !== undefined ? ` ${name}="${Math.round(v)}"` : ''
-  const bodyPr =
+  const bodyAttrs =
     `<a:bodyPr wrap="square" rtlCol="0"` +
     ins('lIns', opts.bodyInsets?.l) +
     ins('tIns', opts.bodyInsets?.t) +
     ins('rIns', opts.bodyInsets?.r) +
     ins('bIns', opts.bodyInsets?.b) +
-    (opts.bodyAnchor ? ` anchor="${opts.bodyAnchor}"` : '') +
-    '/>'
+    (opts.bodyAnchor ? ` anchor="${opts.bodyAnchor}"` : '')
+  const bodyPr =
+    opts.bodyAutofit === 'shrink'
+      ? `${bodyAttrs}><a:normAutofit/></a:bodyPr>`
+      : `${bodyAttrs}/>`
   return (
     `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeXmlAttr(name)}"/>` +
     `<p:cNvSpPr${isTextbox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>` +

@@ -187,7 +187,9 @@ export function qcSlidePage(opts: QcPageOptions): Promise<QcPageResult> {
       transport,
       skill: createSlideFixSkill(access),
       // audit feedback inside execute_slide_script output drives at most a couple of fix rounds
-      maxTurns: 6,
+      // two tools (read_slide + execute_slide_script) with per-round audits;
+      // 6 starved multi-element fix runs mid-way ("tool call limit reached")
+      maxTurns: 12,
       ...(systemSuffix ? { systemSuffix } : {}),
       events: {
         onToolExecuted: ({ execution }) => {
