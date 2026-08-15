@@ -46,7 +46,10 @@ const HTML_DOM_WALKER = `(() => {
   const hex = (c) => {
     const m = /^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,\\s]+([\\d.]+))?\\)$/.exec((c || '').trim())
     if (!m) return null
-    if (m[4] !== undefined && parseFloat(m[4]) < 0.06) return null
+    const a = m[4] === undefined ? 1 : parseFloat(m[4])
+    // translucent fills are decorative tints; converting them to opaque solids
+    // would paint walls over the text layer — skip them entirely
+    if (a < 0.55) return null
     return '#' + [1, 2, 3].map((i) => Math.max(0, Math.min(255, +m[i])).toString(16).padStart(2, '0')).join('')
   }
   const out = { background: hex(getComputedStyle(page).backgroundColor), elements: [] }
@@ -328,7 +331,7 @@ export function registerSlidesOnlyAiIpc(): void {
         webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
       })
       try {
-        await win.loadURL('data:text/html;base64,' + Buffer.from(html, 'utf8').toString('base64'))
+        await win.loadURL('data:text/html;charset=utf-8;base64,' + Buffer.from(html, 'utf8').toString('base64'))
         await win.webContents.executeJavaScript(
           'Promise.all([document.fonts.ready, ...Array.from(document.images).map((i) => i.decode().catch(() => {}))])',
           true,
@@ -337,6 +340,9 @@ export function registerSlidesOnlyAiIpc(): void {
           | HtmlWalkResult
           | null
         if (!parsed || !Array.isArray(parsed.elements)) return { error: 'DOM walk failed' }
+        if (parsed.elements.length > 0 && !parsed.elements.some((el) => el.kind === 'text')) {
+          return { error: 'no text found in the page — text must be real DOM text, not CSS or images' }
+        }
 
         const deckW = session.opened.deck.size.cx
         const deckH = session.opened.deck.size.cy

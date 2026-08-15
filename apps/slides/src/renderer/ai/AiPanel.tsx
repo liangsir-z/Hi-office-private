@@ -1288,7 +1288,7 @@ export function AiPanel({
           // missing design "eye" of text-only models, and make weak models act
           // instead of advise. The full system lives in the slide-design-master
           // skill; this block keeps only the hard constraints and the example.
-          const BEAUTIFY_EXEMPLAR = `<!doctype html><html><head><style>
+          const BEAUTIFY_EXEMPLAR = `<!doctype html><html><head><meta charset="utf-8"><style>
 .slide { position: relative; width: 1280px; height: 720px; background: #F7F8FA; font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #1A1D24; }
 .title { position: absolute; left: 96px; top: 84px; font-size: 48px; font-weight: 700; }
 .kicker { position: absolute; left: 96px; top: 148px; font-size: 19px; color: #0F766E; font-weight: 600; }
