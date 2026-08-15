@@ -139,6 +139,7 @@ export {
   buildColorMap,
   collectExplicitColors,
   patchThemeXml,
+  readThemeFromArchive,
   recolorXml,
   remapDeckColors,
   type ThemeSpec,

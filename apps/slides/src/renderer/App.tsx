@@ -3222,7 +3222,23 @@ export function App() {
           onReadSkillBody={async (dir) => (await window.slidesApi.skillRead(dir))?.md ?? null}
           templates={templates}
           onExtractTemplate={async (name) => {
-            return { ok: false, error: 'use the design tab theme gallery to save a preset' }
+            // Extract the deck's current theme (scheme colors + fonts) into a
+            // reusable preset — the same shape onApplyTemplate consumes
+            const theme = await window.slidesApi.readTheme()
+            if (!theme || Object.keys(theme.colors).length === 0) {
+              return { ok: false, error: 'no theme to extract' }
+            }
+            const res = await window.slidesApi.templateCreate({
+              name,
+              kind: 'theme',
+              payload: {
+                colors: theme.colors,
+                ...(theme.majorFont ? { majorFont: theme.majorFont } : {}),
+                ...(theme.minorFont ? { minorFont: theme.minorFont } : {}),
+              },
+            })
+            if (res.ok) setTemplates(await window.slidesApi.templateList())
+            return res.ok ? { ok: true } : { ok: false, error: res.error }
           }}
           onApplyTemplate={async (id) => {
             const rec = await window.slidesApi.templateGet(id)

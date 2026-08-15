@@ -90,6 +90,40 @@ export function applyThemeToArchive(opened: OpenedPptx, spec: ThemeSpec): number
   return patched
 }
 
+/**
+ * Read the first theme part's clrScheme + fontScheme (the inverse of
+ * applyThemeToArchive): used by template extraction so a deck's current look
+ * can be saved as a reusable preset. Returns null when no theme part parses.
+ */
+export function readThemeFromArchive(opened: OpenedPptx): ThemeSpec | null {
+  const { archive } = opened
+  const paths = [...archive.entries.keys()].filter((p) => THEME_PART_RE.test(p)).sort()
+  for (const path of paths) {
+    const xml = archive.readText(path)
+    if (!xml) continue
+    const colors: Record<string, string> = {}
+    for (const key of SCHEME_KEYS) {
+      const sec = new RegExp(`<a:${key}>([\\s\\S]*?)</a:${key}>`).exec(xml)
+      if (!sec) continue
+      const m =
+        /<a:srgbClr\s+val="([0-9A-Fa-f]{6})"/.exec(sec[1]!) ??
+        /<a:sysClr[^>]*lastClr="([0-9A-Fa-f]{6})"/.exec(sec[1]!)
+      if (m) colors[key] = `#${m[1]!.toUpperCase()}`
+    }
+    if (Object.keys(colors).length === 0) continue
+    const major = /<a:majorFont>[\s\S]*?<a:latin[^>]*typeface="([^"]+)"/.exec(xml)
+    const minor = /<a:minorFont>[\s\S]*?<a:latin[^>]*typeface="([^"]+)"/.exec(xml)
+    const name = /<a:clrScheme name="([^"]*)"/.exec(xml)?.[1]
+    return {
+      name: name || 'Extracted theme',
+      colors,
+      ...(major?.[1] ? { majorFont: major[1] } : {}),
+      ...(minor?.[1] ? { minorFont: minor[1] } : {}),
+    }
+  }
+  return null
+}
+
 // ── Explicit color remapping ──────────────────────────────────────────
 // Real-world decks (especially AI-generated/exported ones) use almost exclusively
 // explicit srgbClr colors that never reference the scheme — swapping only the theme

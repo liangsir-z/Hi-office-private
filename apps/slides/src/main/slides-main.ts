@@ -45,6 +45,7 @@ import {
   addSmartArt,
   applyHeaderFooter,
   applyThemeToArchive,
+  readThemeFromArchive,
   remapDeckColors,
   addTable,
   copyElementData,
@@ -2995,6 +2996,14 @@ export function registerSlidesIpc(): void {
     session.metaDirty = true
     session.fitWidthPx = op.fitWidthPx
     return buildAllRenderSlides(session.opened, op.fitWidthPx)
+  })
+
+  // Read the deck's current theme (clrScheme + fontScheme) for template extraction —
+  // read-only, no history entry, no reparse
+  ipcMain.handle('slides:read-theme', (e) => {
+    const session = sessions.get(e.sender.id)
+    if (!session) return null
+    return readThemeFromArchive(session.opened)
   })
 
   ipcMain.handle('slides:set-transition', (e, op: SetTransitionOp) => {

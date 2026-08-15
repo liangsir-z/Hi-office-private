@@ -196,6 +196,7 @@ const api: SlidesApi = {
   getHeaderFooter: (slideIndex: number) =>
     ipcRenderer.invoke('slides:get-header-footer', slideIndex),
   applyTheme: (op: ApplyThemeOp) => ipcRenderer.invoke('slides:apply-theme', op),
+  readTheme: () => ipcRenderer.invoke('slides:read-theme'),
   setTransition: (op: SetTransitionOp) => ipcRenderer.invoke('slides:set-transition', op),
   getTransition: (slideIndex: number) => ipcRenderer.invoke('slides:get-transition', slideIndex),
   setAdvanceTimes: (op: SetAdvanceTimesOp) => ipcRenderer.invoke('slides:set-advance-times', op),

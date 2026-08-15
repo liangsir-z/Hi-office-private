@@ -1169,6 +1169,13 @@ export interface SlidesApi {
   ) => Promise<{ footer: string | null; slideNum: boolean; date: string | null }>
   /** Apply a theme (color/font scheme + per-page background); returns the reparsed full RenderSlide set, null = no-op, { error } = failed (state rolled back) */
   applyTheme: (op: ApplyThemeOp) => Promise<RenderSlide[] | { error: string } | null>
+  /** Read the deck's current theme (clrScheme colors + scheme fonts) for template extraction; null = no theme */
+  readTheme: () => Promise<{
+    name: string
+    colors: Record<string, string>
+    majorFont?: string
+    minorFont?: string
+  } | null>
   /** Set the transition effect (takes effect in PowerPoint shows of the saved pptx); returns success */
   setTransition: (op: SetTransitionOp) => Promise<boolean>
   /** The current page's transition effect (echoed on page switch) */
