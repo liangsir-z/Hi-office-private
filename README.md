@@ -1,13 +1,19 @@
 # Hi-office
 
+**中文简介** — Hi-office 是一套 AI 原生的办公四件套(文档 / 表格 / 幻灯片 / PDF),基于
+Electron 的 monorepo,五个应用共享同一套自研引擎层。AI 不是外挂聊天框,而是一等公民的编辑
+工作流:文档里按段落块做 AI 改写(带版本快照与差异对比),表格/幻灯片/PDF 里是可以真正调用
+工具、直接修改文档状态的智能体。文字处理与幻灯片引擎针对"打开→编辑→保存不破坏原排版"做了
+字节级保真。模型侧只内置 DeepSeek,各自填自己的 API Key,请求直连官方 API。界面提供 19 种
+语言,AI 回复跟随界面语言。
+
 An AI-native office suite for macOS and Windows: word processor, spreadsheet,
 presentations, and PDF — five Electron apps sharing one engine layer, built
 around AI editing as a first-class workflow rather than a bolted-on chat box.
 
 ## Install
 
-Installers are built internally from this repository and distributed to the
-team directly; there is no public download page.
+There is no public download page yet; build installers from source:
 
 ```bash
 npm install
