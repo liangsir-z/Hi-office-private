@@ -30,3 +30,6 @@ electron-builder.env
 __pycache__/
 /notes/
 /MEMORY.md
+
+# ZCode agent session artifacts (plans etc.)
+.zcode/
